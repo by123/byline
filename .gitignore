@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build / packaging output
+dist/
+*.app
+
+# macOS
+.DS_Store
+
+# Editor / local tooling
+.claude/settings.local.json
+
+# Runtime-generated shell state (not part of the integration; user-private)
+byline-app/shell/.zsh_history
+byline-app/shell/.zsh_sessions/
+byline-app/shell/.zcompdump*
+byline-app/shell/.zcompdump*.zwc
+
+# Logs
+*.log
+npm-debug.log*

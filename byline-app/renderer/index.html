@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Byline</title>
+<link rel="stylesheet" href="vendor/xterm.css" />
+<style>
+:root{
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC",system-ui,sans-serif;
+  --font-mono:"SF Mono","JetBrains Mono",ui-monospace,"Menlo",monospace;
+  --r-card:12px; --r-ctrl:8px;
+  --win:#ffffff; --term-bg:#ffffff; --titlebar:rgba(255,255,255,.72);
+  --surface:#ffffff; --surface-2:#f5f7f9; --surface-3:#eef1f4;
+  --text:#1b1e23; --muted:#626a74; --faint:#98a1ab;
+  --border:rgba(17,24,28,.08); --border-strong:rgba(17,24,28,.14);
+  --accent:#0d9488; --accent-strong:#0f766e; --accent-soft:rgba(13,148,136,.10); --accent-ring:rgba(13,148,136,.28);
+  --run:#0d9488; --wait:#c2790b; --wait-soft:rgba(194,121,11,.12); --done:#16a34a; --idle:#98a1ab;
+  --tl-red:#e0533d; --tl-yellow:#e0a81e; --tl-green:#16a34a;
+  --shadow-pop:0 24px 60px -18px rgba(17,40,45,.30);
+}
+:root[data-theme="dark"]{
+  --win:#14171b; --term-bg:#16191d; --titlebar:rgba(22,26,31,.72);
+  --surface:#16191d; --surface-2:#1b1f24; --surface-3:#22272d;
+  --text:#e7eaee; --muted:#9aa3ad; --faint:#6a747e;
+  --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.14);
+  --accent:#2dd4bf; --accent-strong:#5eead4; --accent-soft:rgba(45,212,191,.12); --accent-ring:rgba(45,212,191,.30);
+  --run:#2dd4bf; --wait:#e2b04a; --wait-soft:rgba(226,176,74,.14); --done:#4ade80; --idle:#6a747e;
+  --tl-red:#ff6b52; --tl-yellow:#e2b04a; --tl-green:#4ade80;
+  --shadow-pop:0 28px 70px -18px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;overflow:hidden;}
+body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-font-smoothing:antialiased;}
+.window{display:flex;flex-direction:column;height:100vh;}
+
+.titlebar{height:44px;flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 10px 0 84px;
+  background:var(--titlebar);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--border);-webkit-app-region:drag;position:relative;z-index:5;}
+.tabs{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;overflow:hidden;-webkit-app-region:drag;}
+.tab{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;max-width:220px;border-radius:var(--r-ctrl);
+  font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none;border:1px solid transparent;
+  transition:background .15s,color .15s,border-color .15s;white-space:nowrap;-webkit-app-region:no-drag;}
+/* status dots: only 思考中 breathes; others static */
+.dot{width:7px;height:7px;border-radius:50%;background:var(--idle);flex:0 0 auto;}
+.dot.s-idle{background:var(--tl-red);}
+.dot.s-waiting{background:var(--tl-yellow);}
+.dot.s-done{background:var(--tl-green);}
+.dot.s-thinking{animation:rygbreathe 4.2s ease-in-out infinite;}
+/* 思考中: red/yellow/green cycling, each breathing - mirrors the AI-Light traffic light */
+@keyframes rygbreathe{
+  0%{background:var(--tl-green);opacity:1;} 16.6%{background:var(--tl-green);opacity:.28;}
+  33.3%{background:var(--tl-yellow);opacity:1;} 50%{background:var(--tl-yellow);opacity:.28;}
+  66.6%{background:var(--tl-red);opacity:1;} 83.3%{background:var(--tl-red);opacity:.28;}
+  100%{background:var(--tl-green);opacity:1;}
+}
+.tab .t-label{overflow:hidden;text-overflow:ellipsis;}
+.tab:hover{background:var(--surface-2);}
+.tab.active{background:var(--surface-2);color:var(--text);border-color:var(--border);}
+.tab.attn:not(.active){box-shadow:inset 0 0 0 1px var(--wait);}
+.tab .t-close{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;color:var(--faint);opacity:0;transition:opacity .12s,background .12s;}
+.tab:hover .t-close{opacity:1;}
+.tab .t-close:hover{background:var(--surface-3);color:var(--text);}
+.name-edit{font-family:var(--font-ui);font-size:12.5px;color:var(--text);background:var(--surface);border:1px solid var(--accent);
+  border-radius:5px;padding:1px 5px;outline:none;min-width:70px;max-width:180px;-webkit-app-region:no-drag;}
+.tab-add,.tool{width:28px;height:28px;border-radius:var(--r-ctrl);display:grid;place-items:center;color:var(--muted);
+  background:transparent;border:1px solid transparent;cursor:pointer;transition:background .15s,color .15s;-webkit-app-region:no-drag;position:relative;}
+.tab-add:hover,.tool:hover{background:var(--surface-2);color:var(--text);}
+.tool.on{color:var(--accent-strong);background:var(--accent-soft);}
+.tool .badge{position:absolute;top:1px;right:1px;min-width:14px;height:14px;padding:0 3px;border-radius:8px;background:var(--wait);color:#fff;font-size:9px;font-weight:700;display:none;align-items:center;justify-content:center;}
+.tool.has-attn .badge{display:flex;}
+.tools{display:flex;align-items:center;gap:4px;flex:0 0 auto;-webkit-app-region:no-drag;}
+
+.body{flex:1 1 auto;display:flex;min-height:0;}
+#terminals{flex:1 1 auto;position:relative;background:var(--term-bg);min-width:0;}
+.session{position:absolute;inset:0;padding:8px 8px 6px 12px;display:none;}
+.session.active{display:block;}
+.session .xterm{height:100%;}
+.xterm-viewport::-webkit-scrollbar{width:10px;}
+.xterm-viewport::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px;border:3px solid transparent;background-clip:padding-box;}
+
+.sidebar{flex:0 0 250px;width:250px;display:none;flex-direction:column;border-left:1px solid var(--border);background:var(--surface-2);min-height:0;}
+.sidebar.open{display:flex;}
+.sb-head{padding:14px 16px 10px;display:flex;align-items:baseline;gap:8px;}
+.sb-head h2{margin:0;font-size:13px;}
+.sb-head .count{font-size:11px;color:var(--muted);margin-left:auto;text-align:right;}
+.sb-legend{display:flex;flex-wrap:wrap;gap:8px 14px;padding:0 16px 10px;font-size:10.5px;color:var(--faint);border-bottom:1px solid var(--border);}
+.sb-legend span{display:inline-flex;align-items:center;gap:5px;}
+.sb-legend i{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--idle);}
+.sb-legend i.lg-think{background:conic-gradient(var(--tl-green) 0 120deg, var(--tl-yellow) 120deg 240deg, var(--tl-red) 240deg 360deg);}
+.sess-list{flex:1 1 auto;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px;}
+.sess-list::-webkit-scrollbar{width:8px;}
+.sess-list::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px;}
+.sess{display:flex;gap:10px;align-items:center;padding:11px 12px;border-radius:var(--r-ctrl);cursor:pointer;border:1px solid transparent;transition:background .13s,border-color .13s;}
+.sess:hover{background:var(--surface);}
+.sess.active{background:var(--surface);border-color:var(--border);}
+.sess.attn{background:var(--wait-soft);border-color:var(--wait);}
+.s-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--idle);}
+.s-dot.s-idle{background:var(--tl-red);}
+.s-dot.s-waiting{background:var(--tl-yellow);}
+.s-dot.s-done{background:var(--tl-green);}
+.s-dot.s-thinking{animation:rygbreathe 4.2s ease-in-out infinite;}
+.s-main{min-width:0;flex:1 1 auto;}
+.s-name{font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.s-status{font-size:11px;margin-top:1px;color:var(--muted);}
+.s-status.s-idle{color:var(--tl-red);}
+.s-status.s-thinking{color:var(--muted);}
+.s-status.s-waiting{color:var(--tl-yellow);font-weight:600;}
+.s-status.s-done{color:var(--tl-green);}
+
+.scrim{position:absolute;inset:0;z-index:40;display:none;background:rgba(17,24,28,.28);backdrop-filter:blur(3px);align-items:flex-start;justify-content:center;padding-top:12vh;}
+:root[data-theme="dark"] .scrim{background:rgba(0,0,0,.45);}
+.scrim.open{display:flex;}
+.palette{width:min(560px,92%);background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);box-shadow:var(--shadow-pop);overflow:hidden;}
+.palette .search{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);}
+.palette .search svg{color:var(--faint);flex:0 0 auto;}
+.palette .search input{flex:1 1 auto;border:none;outline:none;background:transparent;font-family:var(--font-ui);font-size:15px;color:var(--text);}
+.palette-list{max-height:340px;overflow-y:auto;padding:6px;}
+.p-item{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:var(--r-ctrl);cursor:pointer;}
+.p-item[aria-selected="true"]{background:var(--accent-soft);}
+.p-item .p-ic{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:var(--surface-2);color:var(--muted);flex:0 0 auto;}
+.p-item[aria-selected="true"] .p-ic{color:var(--accent-strong);}
+.p-item .p-txt{flex:1 1 auto;min-width:0;}
+.p-item .p-txt b{font-size:13px;font-weight:600;display:block;}
+.p-item .p-txt span{font-size:11.5px;color:var(--muted);}
+.p-item .p-kbd{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);background:var(--surface-3);border:1px solid var(--border);border-radius:5px;padding:1px 6px;}
+.p-empty{padding:24px;text-align:center;color:var(--faint);font-size:13px;}
+
+.settings{width:min(580px,94%);background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;max-height:78vh;overflow:hidden;}
+.set-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);}
+.set-head h2{margin:0;font-size:14px;flex:1 1 auto;}
+.set-body{padding:16px;overflow-y:auto;}
+.set-hint{margin:0 0 14px;font-size:12px;color:var(--muted);line-height:1.5;}
+.qc-list{display:flex;flex-direction:column;gap:8px;}
+.qc{display:flex;gap:8px;align-items:center;}
+.qc input{font-family:var(--font-ui);font-size:12.5px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-ctrl);padding:8px 10px;outline:none;}
+.qc input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring);}
+.qc .qc-label{flex:0 0 92px;min-width:0;}
+.qc .qc-cmd{flex:1 1 auto;min-width:0;font-family:var(--font-mono);}
+.qc .qc-key{flex:0 0 auto;min-width:84px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--accent-strong);background:var(--accent-soft);border:1px solid transparent;border-radius:var(--r-ctrl);padding:8px 10px;cursor:pointer;white-space:nowrap;}
+.qc .qc-key.empty{color:var(--muted);background:var(--surface-2);border-color:var(--border);}
+.qc .qc-key.rec{color:var(--wait);background:var(--wait-soft);}
+.qc .qc-del{flex:0 0 auto;width:30px;height:34px;border-radius:var(--r-ctrl);border:none;background:transparent;color:var(--faint);cursor:pointer;display:grid;place-items:center;}
+.qc .qc-del:hover{background:var(--surface-2);color:var(--text);}
+.qc-add{margin-top:12px;font-size:12.5px;font-weight:600;color:var(--accent-strong);background:var(--accent-soft);border:none;border-radius:var(--r-ctrl);padding:9px 12px;cursor:pointer;}
+.qc-add:hover{filter:brightness(.97);}
+.set-note{margin:16px 0 0;font-size:11px;color:var(--faint);line-height:1.5;}
+.set-sub{margin:16px 0 8px;font-size:12px;font-weight:600;color:var(--muted);}
+.qc .act-name{flex:1 1 auto;min-width:0;font-size:12.5px;color:var(--text);}
+.renamer{width:min(360px,90%);background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);box-shadow:var(--shadow-pop);padding:16px;}
+.rn-title{font-size:13px;font-weight:600;margin-bottom:10px;}
+.renamer input{width:100%;font-family:var(--font-ui);font-size:14px;color:var(--text);background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--r-ctrl);padding:10px 12px;outline:none;}
+.renamer input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring);}
+.rn-row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+.rn-btn{font-size:12.5px;font-weight:600;border:1px solid var(--border);background:var(--surface-2);color:var(--text);border-radius:var(--r-ctrl);padding:8px 14px;cursor:pointer;}
+.rn-btn.primary{background:var(--accent);color:#fff;border-color:transparent;}
+.rn-btn:hover{filter:brightness(.98);}
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="tabs" id="tabs"></div>
+    <button class="tab-add" id="newTab" title="新标签 (Cmd T)" aria-label="New tab">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <div class="tools">
+      <button class="tool has-attn" id="sidebarBtn" title="会话 (Cmd B)" aria-label="Sessions">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+        <span class="badge" id="attnBadge">0</span>
+      </button>
+      <button class="tool" id="themeBtn" title="切换主题" aria-label="Theme">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <button class="tool" id="paletteBtn" title="命令面板 (Cmd K)" aria-label="Palette">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a3 3 0 1 1 3-3v12a3 3 0 1 1-3-3h12a3 3 0 1 1-3 3V6a3 3 0 1 1 3 3z"/></svg>
+      </button>
+      <button class="tool" id="settingsBtn" title="偏好设置 (Cmd ,)" aria-label="Settings">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.1 12a7.1 7.1 0 0 0-.1-1l1.7-1.3-1.7-3-2 .8a7 7 0 0 0-1.7-1L14.7 3H9.3L9 4.5a7 7 0 0 0-1.7 1l-2-.8-1.7 3L5.3 11a7.1 7.1 0 0 0 0 2l-1.7 1.3 1.7 3 2-.8a7 7 0 0 0 1.7 1L9.3 21h5.4l.3-1.5a7 7 0 0 0 1.7-1l2 .8 1.7-3-1.7-1.3c.06-.33.1-.66.1-1z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="body">
+    <div id="terminals"></div>
+    <aside class="sidebar open" id="sidebar" aria-label="Sessions">
+      <div class="sb-head"><h2>会话</h2><span class="count" id="sessCount"></span></div>
+      <div class="sb-legend">
+        <span><i class="lg-think"></i>思考中</span>
+        <span><i style="background:var(--tl-yellow)"></i>需要确认</span>
+        <span><i style="background:var(--tl-green)"></i>完成</span>
+        <span><i style="background:var(--tl-red)"></i>无活动</span>
+      </div>
+      <div class="sess-list" id="sessList"></div>
+    </aside>
+  </div>
+
+  <div class="scrim" id="scrim">
+    <div class="palette" role="dialog" aria-label="Command palette">
+      <div class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <input id="paletteInput" placeholder="搜索操作…" />
+      </div>
+      <div class="palette-list" id="paletteList"></div>
+    </div>
+  </div>
+
+  <div class="scrim" id="setScrim">
+    <div class="settings" role="dialog" aria-label="设置">
+      <div class="set-head">
+        <h2>快捷指令</h2>
+        <button class="tool" id="setClose" aria-label="关闭"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="set-body">
+        <p class="set-hint">点右侧按钮录制快捷键，Esc 取消，Delete 清除。</p>
+        <h3 class="set-sub">AI 会话</h3>
+        <div class="qc-list" id="qcList"></div>
+        <button class="qc-add" id="qcAdd">+ 添加指令</button>
+        <h3 class="set-sub">命令面板操作</h3>
+        <div class="qc-list" id="actList"></div>
+        <p class="set-note">固定快捷键：⌘1-9 切换标签、⌘ +/-/0 调整字号。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="scrim" id="renameScrim">
+    <div class="renamer" role="dialog" aria-label="重命名标签">
+      <div class="rn-title">重命名标签</div>
+      <input id="renameInput" placeholder="标签名称" autocomplete="off" spellcheck="false" />
+      <div class="rn-row"><button class="rn-btn" id="renameCancel">取消</button><button class="rn-btn primary" id="renameOk">确定</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script>
+(function(){
+  "use strict";
+  const $=(s,r=document)=>r.querySelector(s);
+  const el=(t,c,h)=>{const n=document.createElement(t);if(c)n.className=c;if(h!=null)n.innerHTML=h;return n;};
+  const ANSI=/\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][AB0]|[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
+  const stripAnsi=s=>s.replace(ANSI,'');
+  const WAIT_RE=/(\(y\/n\)|\[y\/n\]|\[y\/N\]|\[Y\/n\]|\by\/n\b|yes\/no|do you want|would you like|are you sure|proceed\?|continue\?|press (enter|return|any key)|\bconfirm\b|\bapprove\b|permission to|allow this|overwrite\?|❯|input required)/i;
+  const LABEL={idle:'无活动',thinking:'思考中',waiting:'需要确认',done:'完成'};
+  const AGENTS={claude:'Claude',codex:'Codex','cursor-agent':'Cursor',cursor:'Cursor',gemini:'Gemini',aider:'Aider',ollama:'Ollama',opencode:'OpenCode',goose:'Goose'};
+  function friendly(cmdline){
+    const toks=String(cmdline||'').trim().split(/\s+/);
+    let i=0;
+    while(i<toks.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i]) || ['sudo','env','command','nohup','time','npx','bunx','pnpm','yarn','bun'].includes(toks[i]))) i++;
+    let p=(toks[i]||'').split('/').pop();
+    if(!p) return null;
+    if(AGENTS[p]) return AGENTS[p];
+    return p.charAt(0).toUpperCase()+p.slice(1);
+  }
+
+  const IC={
+    close:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    plus:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    theme:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M20 12h2M2 12h2"/></svg>',
+    trash:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/></svg>',
+    bot:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg>',
+    side:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>',
+    zoom:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+  };
+
+  const THEMES={
+    light:{background:'#ffffff',foreground:'#1b1e23',cursor:'#0d9488',cursorAccent:'#ffffff',selectionBackground:'rgba(13,148,136,.20)',
+      black:'#1b1e23',red:'#e0533d',green:'#12a150',yellow:'#c07a0c',blue:'#2563aa',magenta:'#b46bd6',cyan:'#0d9488',white:'#626a74',
+      brightBlack:'#98a1ab',brightRed:'#e0533d',brightGreen:'#12a150',brightYellow:'#c07a0c',brightBlue:'#2563aa',brightMagenta:'#b46bd6',brightCyan:'#0d9488',brightWhite:'#1b1e23'},
+    dark:{background:'#16191d',foreground:'#e7eaee',cursor:'#2dd4bf',cursorAccent:'#16191d',selectionBackground:'rgba(45,212,191,.28)',
+      black:'#3b4046',red:'#ff7a63',green:'#46d17f',yellow:'#e2b04a',blue:'#7fb8ff',magenta:'#c98be0',cyan:'#5eead4',white:'#c7ccd2',
+      brightBlack:'#6a747e',brightRed:'#ff8f7a',brightGreen:'#5fe08f',brightYellow:'#f0c46b',brightBlue:'#9cc9ff',brightMagenta:'#d7a3ea',brightCyan:'#7ff0e0',brightWhite:'#ffffff'}
+  };
+
+  const Fit=window.FitAddon&&(window.FitAddon.FitAddon||window.FitAddon);
+  const terminalsEl=$('#terminals'), tabsEl=$('#tabs'), listEl=$('#sessList');
+  const sessions=new Map();
+  let seq=0, activeId=null, fontSize=13;
+  let theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+  document.documentElement.dataset.theme=theme;
+
+  /* ---------- rename (modal in the body, reliable outside the titlebar drag region) ---------- */
+  const renameScrim=$('#renameScrim'), renameInput=$('#renameInput');
+  let renameTarget=null;
+  function openRename(s){ if(!s) return; renameTarget=s; renameInput.value=s.name||''; renameScrim.classList.add('open'); setTimeout(()=>{ renameInput.focus(); renameInput.select(); },30); }
+  function commitRename(){ if(renameTarget){ const v=renameInput.value.trim(); if(v){ renameTarget.custom=true; renameTarget.name=v; applyName(renameTarget); } } closeRename(); }
+  function closeRename(){ renameScrim.classList.remove('open'); renameTarget=null; const s=sessions.get(activeId); s&&s.term.focus(); }
+  $('#renameOk').addEventListener('click',commitRename);
+  $('#renameCancel').addEventListener('click',closeRename);
+  renameInput.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter'){e.preventDefault();commitRename();} else if(e.key==='Escape'){e.preventDefault();closeRename();} });
+  renameScrim.addEventListener('click',e=>{ if(e.target===renameScrim) closeRename(); });
+
+  /* ---------- incremental UI ---------- */
+  function buildTab(s){
+    const t=el('div','tab'); const dot=el('span','dot s-idle'); const lab=el('span','t-label',s.name); const cl=el('span','t-close',IC.close);
+    t.appendChild(dot); t.appendChild(lab); t.appendChild(cl);
+    t.addEventListener('click',()=>activate(s.id));
+    t.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });   // 双击标签 = 重命名当前标签
+    cl.addEventListener('click',e=>{e.stopPropagation();closeSession(s.id);});
+    tabsEl.appendChild(t);
+    s.tabEl=t; s.tabDot=dot; s.tabLabel=lab;
+  }
+  function buildRow(s){
+    const r=el('div','sess'); const dot=el('span','s-dot s-idle'); const main=el('div','s-main');
+    const nm=el('div','s-name',s.name); const st=el('div','s-status s-idle',LABEL.idle);
+    main.appendChild(nm); main.appendChild(st); r.appendChild(dot); r.appendChild(main);
+    r.addEventListener('click',()=>activate(s.id));
+    nm.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });
+    listEl.appendChild(r);
+    s.rowEl=r; s.rowDot=dot; s.rowName=nm; s.rowStatus=st;
+  }
+  function applyState(s){
+    const st=s.state;
+    s.tabDot.className='dot s-'+st;
+    s.rowDot.className='s-dot s-'+st;
+    s.rowStatus.className='s-status s-'+st; s.rowStatus.textContent=LABEL[st];
+    s.tabEl.classList.toggle('attn', st==='waiting' && s.id!==activeId);
+    s.rowEl.classList.toggle('attn', st==='waiting');
+  }
+  function applyName(s){ if(s.tabLabel) s.tabLabel.textContent=s.name; if(s.rowName) s.rowName.textContent=s.name; }
+  function applyActive(){
+    for(const [id,s] of sessions){
+      s.box.classList.toggle('active', id===activeId);
+      s.tabEl.classList.toggle('active', id===activeId);
+      s.tabEl.classList.toggle('attn', s.state==='waiting' && id!==activeId);
+      s.rowEl.classList.toggle('active', id===activeId);
+    }
+  }
+  function updateBadge(){
+    let w=0,d=0; for(const s of sessions.values()){ if(s.state==='waiting') w++; else if(s.state==='done') d++; }
+    const btn=$('#sidebarBtn'); btn.classList.toggle('has-attn', w>0); if(w>0) $('#attnBadge').textContent=w;
+    $('#sessCount').textContent = sessions.size+' 个会话'+(w?(' · '+w+' 需要确认'):'')+(d?(' · '+d+' 完成'):'');
+  }
+
+  /* ---------- status state machine ---------- */
+  function setState(id,st){
+    const s=sessions.get(id); if(!s||s.state===st) return;
+    s.state=st; applyState(s); updateBadge();
+  }
+  // heuristic setter: yields to authoritative hook status when a session is hook-driven
+  function hsetState(id,st){ const s=sessions.get(id); if(s&&s.hookDriven) return; setState(id,st); }
+  function setName(id,name){
+    const s=sessions.get(id); if(!s||s.custom) return;
+    const n=name||s.base; if(s.name===n) return; s.name=n; applyName(s);
+  }
+  function scheduleSettle(id){ const s=sessions.get(id); if(!s) return; clearTimeout(s.settle); s.settle=setTimeout(()=>settle(id),1100); }
+  function settle(id){
+    const s=sessions.get(id); if(!s||!s.cmdActive) return;
+    if(Date.now()-s.lastByteTs<1000){ scheduleSettle(id); return; }
+    s.burst=0;
+    const tail=stripAnsi(s.tail).slice(-800);
+    if(WAIT_RE.test(tail)) hsetState(id,'waiting');
+    else if(s.turnStarted && s.turnBytes>0) hsetState(id,'done');
+    else if(s.turnStarted) { scheduleSettle(id); }          // submitted but no output yet -> keep 思考中
+    else hsetState(id,'idle');
+  }
+  function onOsc133(id,payload){
+    const s=sessions.get(id); if(!s) return;
+    const k=payload[0];
+    if(k==='C'){ s.cmdActive=true; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
+    else if(k==='D'){ s.cmdActive=false; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
+  }
+
+  /* ---------- sessions ---------- */
+  function newSession(opts){
+    opts=opts||{};
+    const id='S'+(++seq);
+    const box=el('div','session'); terminalsEl.appendChild(box);
+    const term=new Terminal({fontFamily:"'SF Mono','JetBrains Mono',ui-monospace,'Menlo',monospace",fontSize,lineHeight:1.32,
+      cursorBlink:true,cursorStyle:'bar',cursorWidth:2,allowProposedApi:true,macOptionIsMeta:true,scrollback:8000,
+      fontWeight:'400',fontWeightBold:'600',theme:THEMES[theme]});
+    const fit=new Fit(); term.loadAddon(fit); term.open(box);
+    const s={id,term,fit,box,state:'idle',cmdActive:false,turnStarted:false,turnBytes:0,burst:0,
+      lastByteTs:0,lastUserTs:0,tail:'',settle:null,base:'zsh',name:(opts.title||'zsh'),custom:false,hookDriven:false};
+    sessions.set(id,s);
+    buildTab(s); buildRow(s);
+    try{
+      term.parser.registerOscHandler(133,d=>{ onOsc133(id,d); return true; });
+      term.parser.registerOscHandler(697,d=>{ const f=friendly(d); if(f) setName(id,f); return true; });
+    }catch(_){}
+    term.onData(d=>{
+      byline.input(id,d);
+      s.lastUserTs=Date.now();
+      if(s.cmdActive && /[\r\n]/.test(d)){ s.turnStarted=true; s.turnBytes=0; s.burst=0; hsetState(id,'thinking'); scheduleSettle(id); }
+    });
+    term.attachCustomKeyEventHandler(e=>handleKey(e,id,term));
+    activate(id);
+    requestAnimationFrame(()=>{ try{fit.fit();}catch(_){} byline.start(id,term.cols,term.rows); term.focus(); });
+    setTimeout(()=>{ try{fit.fit();}catch(_){} byline.resize(id,term.cols,term.rows); },120);
+    if(opts.cmd){ setTimeout(()=>byline.input(id,opts.cmd+'\n'),700); }
+    updateBadge();
+    return id;
+  }
+  function activate(id){
+    if(!sessions.has(id)) return;
+    activeId=id; applyActive(); updateBadge();
+    const s=sessions.get(id);
+    requestAnimationFrame(()=>{ try{s.fit.fit();}catch(_){} byline.resize(id,s.term.cols,s.term.rows); s.term.focus(); });
+  }
+  function closeSession(id){
+    const s=sessions.get(id); if(!s) return;
+    clearTimeout(s.settle); byline.kill(id); try{s.term.dispose();}catch(_){}
+    s.box.remove(); s.tabEl.remove(); s.rowEl.remove(); sessions.delete(id);
+    if(activeId===id){ const nx=sessions.keys().next().value; if(nx) activate(nx); else newSession(); }
+    updateBadge();
+  }
+
+  byline.onData(({id,data})=>{
+    const s=sessions.get(id); if(!s) return;
+    s.term.write(data);
+    if(!s.cmdActive) return;
+    s.lastByteTs=Date.now();
+    s.tail+=data; if(s.tail.length>2600) s.tail=s.tail.slice(-1800);
+    s.burst+=data.length; if(s.turnStarted) s.turnBytes+=data.length;
+    const composing=(Date.now()-s.lastUserTs)<1000;
+    if(s.state!=='thinking' && !composing && s.burst>=20) hsetState(id,'thinking');  // sustained model output
+    scheduleSettle(id);
+  });
+  byline.onExit(({id})=>{ if(sessions.has(id)) closeSession(id); });
+
+  let rzT; addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },70); });
+
+  function setFont(px){ fontSize=Math.max(9,Math.min(24,px)); for(const s of sessions.values()){ s.term.options.fontSize=fontSize; try{s.fit.fit();}catch(_){} } const a=sessions.get(activeId); if(a) byline.resize(activeId,a.term.cols,a.term.rows); }
+  function applyTheme(t){ theme=t; document.documentElement.dataset.theme=t; for(const s of sessions.values()) s.term.options.theme=THEMES[t]; }
+  function toggleTheme(){ applyTheme(theme==='dark'?'light':'dark'); }
+  function toggleSidebar(force){ const sb=$('#sidebar'); const open=force!=null?force:!sb.classList.contains('open'); sb.classList.toggle('open',open); $('#sidebarBtn').classList.toggle('on',open); setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },60); }
+
+  function handleKey(e,id,term){
+    if(e.type!=='keydown') return true;
+    if(e.metaKey && !e.ctrlKey){
+      const k=e.key.toLowerCase();
+      if(k==='='||k==='+'){ setFont(fontSize+1); return false; }
+      if(k==='-'){ setFont(fontSize-1); return false; }
+      if(k==='0'){ setFont(13); return false; }
+      if(k>='1'&&k<='9'){ const arr=[...sessions.keys()]; if(arr[+k-1]) activate(arr[+k-1]); return false; }
+    }
+    return true;
+  }
+
+  /* ---------- command palette ---------- */
+  const scrim=$('#scrim'), pInput=$('#paletteInput'), pList=$('#paletteList');
+  function allActions(){
+    const list=[];
+    for(const q of quick){ if(q && q.cmd) list.push({t:'新建 '+(q.label||q.cmd)+' 会话', s:q.cmd, k:accelDisplay(q.accel), ic:IC.bot, run:()=>newSession({cmd:q.cmd,title:q.label})}); }
+    for(const d of ACTION_DEFS){ list.push({t:d.label, s:'', k:accelDisplay(actionAccel(d.id)), ic:d.ic, run:d.run}); }
+    return list;
+  }
+  let pSel=0,pF=[];
+  function renderPalette(){
+    const q=pInput.value.toLowerCase();
+    pF=allActions().filter(a=>(a.t+' '+a.s).toLowerCase().includes(q)); pSel=0;
+    if(!pF.length){ pList.innerHTML='<div class="p-empty">无匹配操作</div>'; return; }
+    pList.innerHTML=pF.map((a,i)=>'<div class="p-item" data-i="'+i+'" aria-selected="'+(i===0)+'"><span class="p-ic">'+a.ic+'</span><span class="p-txt"><b>'+a.t+'</b>'+(a.s?'<span>'+a.s+'</span>':'')+'</span>'+(a.k?'<span class="p-kbd">'+a.k+'</span>':'')+'</div>').join('');
+    pList.querySelectorAll('.p-item').forEach(it=>{ it.addEventListener('mouseenter',()=>setPSel(+it.dataset.i)); it.addEventListener('click',()=>runP(+it.dataset.i)); });
+  }
+  function setPSel(i){ pSel=i; pList.querySelectorAll('.p-item').forEach((it,idx)=>it.setAttribute('aria-selected',idx===i)); }
+  function runP(i){ const a=pF[i]; if(!a) return; closePalette(); a.run(); }
+  function openPalette(){ scrim.classList.add('open'); pInput.value=''; renderPalette(); setTimeout(()=>pInput.focus(),30); }
+  function closePalette(){ scrim.classList.remove('open'); const s=sessions.get(activeId); s&&s.term.focus(); }
+  pInput.addEventListener('input',renderPalette);
+  pInput.addEventListener('keydown',e=>{
+    if(e.key==='ArrowDown'){e.preventDefault();setPSel((pSel+1)%pF.length);}
+    else if(e.key==='ArrowUp'){e.preventDefault();setPSel((pSel-1+pF.length)%pF.length);}
+    else if(e.key==='Enter'){e.preventDefault();runP(pSel);}
+    else if(e.key==='Escape'){closePalette();}
+  });
+  scrim.addEventListener('click',e=>{if(e.target===scrim)closePalette();});
+
+  /* ---------- quick commands + actions + settings ---------- */
+  const QC_KEY='byline.quick.v1';
+  const ACT_KEY='byline.actions.v1';
+  const DEFAULT_QC=[
+    {label:'Claude',cmd:'claude',accel:'Cmd+N'},
+    {label:'Codex',cmd:'codex',accel:'Cmd+Shift+N'},
+    {label:'Cursor',cmd:'cursor-agent',accel:''},
+  ];
+  // every built-in palette operation; label fixed, shortcut configurable in Settings.
+  const ACTION_DEFS=[
+    {id:'newShell', label:'新建终端',            def:'Cmd+T', ic:IC.plus,  run:()=>newSession()},
+    {id:'closeTab', label:'关闭当前标签',        def:'Cmd+W', ic:IC.close, run:()=>closeSession(activeId)},
+    {id:'rename',   label:'重命名当前标签',      def:'Cmd+R', ic:IC.side,  run:()=>{ const s=sessions.get(activeId); if(s) openRename(s); }},
+    {id:'sidebar',  label:'显示/隐藏会话栏',     def:'Cmd+B', ic:IC.side,  run:()=>toggleSidebar()},
+    {id:'palette',  label:'命令面板',            def:'Cmd+K', ic:IC.side,  run:()=>{ scrim.classList.contains('open')?closePalette():openPalette(); }},
+    {id:'zoom',     label:'缩放窗口',            def:'',      ic:IC.zoom,  run:()=>byline.zoomWindow&&byline.zoomWindow()},
+    {id:'theme',    label:'切换主题',            def:'',      ic:IC.theme, run:toggleTheme},
+    {id:'clear',    label:'清屏',                def:'',      ic:IC.trash, run:()=>{ if(activeId) byline.input(activeId,'\f'); }},
+    {id:'settings', label:'偏好设置 / 快捷指令', def:'Cmd+,', ic:IC.side,  run:()=>openSettings()},
+  ];
+  function loadJSON(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(_){ return null; } }
+  let quick = Array.isArray(loadJSON(QC_KEY)) ? loadJSON(QC_KEY) : DEFAULT_QC.map(x=>({...x}));
+  let actionAccels = (loadJSON(ACT_KEY) && typeof loadJSON(ACT_KEY)==='object') ? loadJSON(ACT_KEY) : {};
+  function actionAccel(id){ if(Object.prototype.hasOwnProperty.call(actionAccels,id)) return actionAccels[id]; const d=ACTION_DEFS.find(a=>a.id===id); return d?d.def:''; }
+  function menuPayload(){ return { quick, actions: ACTION_DEFS.map(a=>({id:a.id,label:a.label,accel:actionAccel(a.id)})) }; }
+  function pushMenu(){ byline.updateMenu && byline.updateMenu(menuPayload()); }
+  function persistAll(){ localStorage.setItem(QC_KEY, JSON.stringify(quick)); localStorage.setItem(ACT_KEY, JSON.stringify(actionAccels)); pushMenu(); }
+
+  function accelDisplay(a){ if(!a) return ''; return a.split('+').map(p=>({Cmd:'⌘',Ctrl:'⌃',Alt:'⌥',Shift:'⇧',Return:'↩',Space:'␣'}[p]||p)).join(''); }
+  function keyToAccel(e){
+    const parts=[];
+    if(e.metaKey) parts.push('Cmd');
+    if(e.ctrlKey) parts.push('Ctrl');
+    if(e.altKey) parts.push('Alt');
+    if(e.shiftKey) parts.push('Shift');
+    let k=null;
+    if(/^Key[A-Z]$/.test(e.code)) k=e.code.slice(3);
+    else if(/^Digit[0-9]$/.test(e.code)) k=e.code.slice(5);
+    else { const m={Comma:',',Period:'.',Slash:'/',Backslash:'\\',Minus:'-',Equal:'=',Space:'Space',Enter:'Return',Tab:'Tab',ArrowUp:'Up',ArrowDown:'Down',ArrowLeft:'Left',ArrowRight:'Right'}; k=m[e.code]||null; }
+    if(!k || !parts.length) return null;
+    parts.push(k); return parts.join('+');
+  }
+
+  const setScrim=$('#setScrim');
+  let recording=false;
+  function recordShortcut(btn, onSet){
+    if(recording) return; recording=true;
+    btn.textContent='录制中…'; btn.classList.add('rec'); btn.classList.remove('empty');
+    byline.suspendMenu && byline.suspendMenu();
+    const finish=()=>{ recording=false; window.removeEventListener('keydown',onKey,true); renderSettings(); pushMenu(); };
+    const onKey=e=>{
+      e.preventDefault(); e.stopPropagation();
+      if(e.key==='Escape'){ finish(); return; }
+      if(e.key==='Backspace'||e.key==='Delete'){ onSet(''); persistAll(); finish(); return; }
+      if(['Meta','Control','Alt','Shift'].includes(e.key)) return;
+      const a=keyToAccel(e); if(!a) return;
+      onSet(a); persistAll(); finish();
+    };
+    window.addEventListener('keydown',onKey,true);
+  }
+  function renderQC(){
+    const list=$('#qcList'); list.innerHTML='';
+    quick.forEach((q,i)=>{
+      const row=el('div','qc');
+      row.innerHTML='<input class="qc-label" placeholder="名称"><input class="qc-cmd" placeholder="命令，如 claude"><button class="qc-key"></button><button class="qc-del" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
+      const lab=row.querySelector('.qc-label'), cmd=row.querySelector('.qc-cmd'), keyb=row.querySelector('.qc-key'), del=row.querySelector('.qc-del');
+      lab.value=q.label||''; cmd.value=q.cmd||'';
+      keyb.textContent=q.accel?accelDisplay(q.accel):'设置快捷键'; keyb.classList.toggle('empty',!q.accel);
+      lab.addEventListener('input',()=>{ q.label=lab.value; persistAll(); });
+      cmd.addEventListener('input',()=>{ q.cmd=cmd.value; persistAll(); });
+      keyb.addEventListener('click',()=>recordShortcut(keyb, v=>{ q.accel=v; }));
+      del.addEventListener('click',()=>{ quick.splice(i,1); persistAll(); renderSettings(); });
+      list.appendChild(row);
+    });
+  }
+  function renderActions(){
+    const list=$('#actList'); list.innerHTML='';
+    ACTION_DEFS.forEach(d=>{
+      const row=el('div','qc');
+      row.innerHTML='<div class="act-name"></div><button class="qc-key"></button>';
+      const name=row.querySelector('.act-name'), keyb=row.querySelector('.qc-key');
+      name.textContent=d.label;
+      const cur=actionAccel(d.id);
+      keyb.textContent=cur?accelDisplay(cur):'设置快捷键'; keyb.classList.toggle('empty',!cur);
+      keyb.addEventListener('click',()=>recordShortcut(keyb, v=>{ actionAccels[d.id]=v; }));
+      list.appendChild(row);
+    });
+  }
+  function renderSettings(){ renderQC(); renderActions(); }
+  function openSettings(){ renderSettings(); setScrim.classList.add('open'); }
+  function closeSettings(){ if(recording) return; setScrim.classList.remove('open'); const s=sessions.get(activeId); s&&s.term.focus(); }
+  $('#qcAdd').addEventListener('click',()=>{ quick.push({label:'',cmd:'',accel:''}); persistAll(); renderSettings(); const inputs=$('#qcList').querySelectorAll('.qc-label'); const last=inputs[inputs.length-1]; if(last) last.focus(); });
+  $('#setClose').addEventListener('click',closeSettings);
+  setScrim.addEventListener('click',e=>{ if(e.target===setScrim) closeSettings(); });
+
+  byline.onMenuAction && byline.onMenuAction(a=>{
+    if(!a) return;
+    if(a.type==='newQuick') newSession({cmd:a.cmd, title:a.label});
+    else if(a.type==='action'){ const d=ACTION_DEFS.find(x=>x.id===a.id); if(d) d.run(); }
+    else if(a.type==='newShell') newSession();
+    else if(a.type==='closeTab') closeSession(activeId);
+    else if(a.type==='settings') openSettings();
+  });
+  pushMenu();
+
+  /* ---------- authoritative status from ai-light hooks (per session) ---------- */
+  const HOOK_MAP={start:'idle', off:'idle', think:'thinking', confirm:'waiting', done:'done'};
+  byline.onHookState && byline.onHookState(({id,state})=>{
+    const s=sessions.get(id); if(!s) return;
+    const mapped=HOOK_MAP[state]; if(!mapped) return;
+    s.hookDriven=true;         // this session is now driven by real Claude/Codex events
+    setState(id,mapped);
+  });
+
+  /* ---------- chrome ---------- */
+  $('#newTab').addEventListener('click',()=>newSession());
+  $('#themeBtn').addEventListener('click',toggleTheme);
+  $('#paletteBtn').addEventListener('click',openPalette);
+  $('#sidebarBtn').addEventListener('click',()=>toggleSidebar());
+  $('#settingsBtn').addEventListener('click',openSettings);
+  $('.titlebar').addEventListener('dblclick',e=>{
+    const tabEl=e.target.closest('.tab');
+    if(tabEl){ for(const s of sessions.values()){ if(s.tabEl===tabEl){ openRename(s); break; } } return; }
+    if(e.target.closest('.tab-add,.tool')) return;
+    byline.zoomWindow && byline.zoomWindow();
+  });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(scrim.classList.contains('open')) closePalette(); else if(setScrim.classList.contains('open')) closeSettings(); else if(renameScrim.classList.contains('open')) closeRename(); } });
+
+  newSession();
+})();
+</script>
+</body>
+</html>

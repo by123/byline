@@ -1,0 +1,25 @@
+{
+  "name": "byline",
+  "productName": "Byline",
+  "version": "0.7.0",
+  "description": "A fresh terminal for macOS (xterm.js + node-pty)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "package": "electron-packager . Byline --platform=darwin --arch=arm64 --icon=build/icon.icns --app-bundle-id=sh.byline.app --appVersion=0.7.0 --app-category-type=public.app-category.developer-tools --overwrite --out=dist --ignore=/dist --ignore=zcompdump --ignore=zsh_history --ignore=zsh_sessions",
+    "deploy": "npm run package && rm -rf /Applications/Byline.app && cp -R dist/Byline-darwin-arm64/Byline.app /Applications/ && (xattr -dr com.apple.quarantine /Applications/Byline.app || true) && echo 'Installed to /Applications/Byline.app'"
+  },
+  "author": "Byline",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "@electron/rebuild": "^4.1.0",
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0"
+  }
+}
