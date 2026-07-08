@@ -1,0 +1,21 @@
+#!/bin/sh
+# byline-status — publish the current agent session's state for Byline's sidebar.
+#
+#   Usage: byline-status {start|think|confirm|done|off}
+#
+# Writes the state word to /tmp/byline_sessions/$BYLINE_SID (atomic tmp+rename).
+# BYLINE_SID is set by Byline per terminal tab; outside Byline this is a no-op,
+# so the same hook config is safe in any terminal. Never exits non-zero and
+# never prints: a status hook must not be able to break the agent that calls it.
+
+[ -n "$BYLINE_SID" ] || exit 0
+case "$BYLINE_SID" in *[!0-9A-Za-z-]*) exit 0 ;; esac    # sid is also a filename: allow [0-9A-Za-z-] only
+case "$1" in start|think|confirm|done|off) ;; *) exit 0 ;; esac
+
+DIR=/tmp/byline_sessions
+mkdir -p "$DIR" 2>/dev/null || exit 0
+printf '%s' "$1" > "$DIR/$BYLINE_SID.tmp" 2>/dev/null || exit 0
+mv -f "$DIR/$BYLINE_SID.tmp" "$DIR/$BYLINE_SID" 2>/dev/null
+
+[ -t 0 ] || cat > /dev/null 2>&1    # drain the hook's stdin payload (e.g. Claude Code event JSON)
+exit 0

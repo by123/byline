@@ -12,7 +12,10 @@ app.setName('Byline');
 
 const HOME = os.homedir();
 const SHELL_INT = path.join(__dirname, 'shell');   // Byline shell-integration z-files (bundled, read-only)
-const STATUS_DIR = '/tmp/ai_light_sessions';       // ai-light hooks write per-session state here
+// Per-session status files (see hooks/README.md for the contract). Agent hooks write one
+// word (start|think|confirm|done|off) to <dir>/<BYLINE_SID>. Two dirs are watched: Byline's
+// own, plus the legacy ai-light dir so existing ai-light setups keep working unchanged.
+const STATUS_DIRS = ['/tmp/byline_sessions', '/tmp/ai_light_sessions'];
 let RT_SHELL = SHELL_INT;                           // writable copy so zsh caches (.zcompdump) never touch the app bundle
 let win = null;
 
@@ -48,33 +51,49 @@ function flushPty(id, s) {
 // surfaces the temp filename, not the final one), which would drop updates.
 let _hookStates = {};
 function pollHookStates() {
-  let files;
-  try { files = fs.readdirSync(STATUS_DIR); } catch (_) { return; }
-  for (const id of files) {
-    if (id.endsWith('.tmp')) continue;
-    let state;
-    try { state = fs.readFileSync(path.join(STATUS_DIR, id), 'utf8').trim(); } catch (_) { continue; }
-    if (state && _hookStates[id] !== state && sessions.has(id)) {   // only sessions owned by this instance
+  const newest = {};   // sid -> {state, mtime}; when both dirs have a file, the newer write wins
+  for (const dir of STATUS_DIRS) {
+    let files;
+    try { files = fs.readdirSync(dir); } catch (_) { continue; }
+    for (const id of files) {
+      if (id.endsWith('.tmp') || !sessions.has(id)) continue;   // only sessions owned by this instance
+      try {
+        const fp = path.join(dir, id);
+        const mtime = fs.statSync(fp).mtimeMs;
+        if (newest[id] && newest[id].mtime >= mtime) continue;
+        const state = fs.readFileSync(fp, 'utf8').trim();
+        if (state) newest[id] = { state, mtime };
+      } catch (_) {}
+    }
+  }
+  for (const id of Object.keys(newest)) {
+    const state = newest[id].state;
+    if (_hookStates[id] !== state) {
       _hookStates[id] = state;
       if (win && !win.isDestroyed()) win.webContents.send('hook:state', { id, state });
     }
   }
 }
 function watchHookStates() {
-  try { fs.mkdirSync(STATUS_DIR, { recursive: true }); } catch (_) {}
-  // STATUS_DIR is shared across instances (dev + installed can run together): never wipe it
-  // wholesale, only drop files old enough to be leftovers from a crashed run. Live sessions
-  // clean up after themselves in killAll / pty:kill.
-  try {
-    const now = Date.now();
-    for (const f of fs.readdirSync(STATUS_DIR)) {
-      const fp = path.join(STATUS_DIR, f);
-      try { if (now - fs.statSync(fp).mtimeMs > 86400e3) fs.unlinkSync(fp); } catch (_) {}
-    }
-  } catch (_) {}
   _hookStates = {};
-  try { fs.watch(STATUS_DIR, () => pollHookStates()); } catch (_) {}  // instant on change
-  setInterval(pollHookStates, 600);                                   // robust fallback
+  for (const dir of STATUS_DIRS) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    // Status dirs are shared across instances (dev + installed can run together): never wipe
+    // them wholesale, only drop files old enough to be leftovers from a crashed run. Live
+    // sessions clean up after themselves in killAll / pty:kill.
+    try {
+      const now = Date.now();
+      for (const f of fs.readdirSync(dir)) {
+        const fp = path.join(dir, f);
+        try { if (now - fs.statSync(fp).mtimeMs > 86400e3) fs.unlinkSync(fp); } catch (_) {}
+      }
+    } catch (_) {}
+    try { fs.watch(dir, () => pollHookStates()); } catch (_) {}  // instant on change
+  }
+  setInterval(pollHookStates, 600);                              // robust fallback
+}
+function unlinkStatus(id) {
+  for (const dir of STATUS_DIRS) { try { fs.unlinkSync(path.join(dir, id)); } catch (_) {} }
 }
 
 function createWindow() {
@@ -109,7 +128,7 @@ function killAll() {
   for (const [id, s] of sessions) {
     clearTimeout(s.flushT);
     try { s.p.kill(); } catch (_) {}
-    try { fs.unlinkSync(path.join(STATUS_DIR, id)); } catch (_) {}
+    unlinkStatus(id);
   }
   sessions.clear();
 }
@@ -201,7 +220,7 @@ ipcMain.on('pty:kill',   (_e, { id }) => {
   const s = sessions.get(id);
   if (s) { clearTimeout(s.flushT); try { s.p.kill(); } catch (_) {} }
   sessions.delete(id);
-  if (validId(id)) { try { fs.unlinkSync(path.join(STATUS_DIR, id)); } catch (_) {} }
+  if (validId(id)) unlinkStatus(id);
 });
 
 // The app menu is data-driven: the renderer sends the user's configurable quick-launch
