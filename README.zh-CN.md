@@ -16,7 +16,7 @@ Byline 底层是一个*真正的*终端，不是包装出来的 UI：[xterm.js](
 login `zsh`。原生补全、颜色、`vim`、`ssh`、你的 `.zshrc` 和 Powerlevel10k 提示符 ——
 一切照常工作。界面支持 23 种语言（默认英文，可在偏好设置中切换）。
 
-> 早期版本（`v0.7.0`）· macOS · Apple Silicon (arm64) · 未签名本地构建
+> **[⬇ 下载 Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.0` · macOS · Apple Silicon (arm64) · 已签名并公证
 
 ---
 
@@ -121,7 +121,11 @@ Byline 的另一件核心大事。开工的模型未必适合收尾 —— Claud
 
 ## 安装
 
-目前从源码构建（签名版本在规划中）：
+**[下载最新版本](https://github.com/by123/byline/releases/latest)** —— 已签名、
+已公证的 DMG：打开后把 Byline 拖进「应用程序」即可，无 Gatekeeper 拦截。
+要求 Apple Silicon (arm64) 的 macOS。
+
+### 从源码构建
 
 ```bash
 git clone https://github.com/by123/byline.git
@@ -131,18 +135,17 @@ npm run rebuild   # 仅首次：按 Electron ABI 编译 node-pty
 npm start         # 开发模式运行
 ```
 
-构建并安装真正的 `Byline.app`：
+构建并安装自己的 `Byline.app`：
 
 ```bash
-npm run package   # -> dist/Byline-darwin-arm64/Byline.app
+npm run package   # 未签名本地构建 -> dist/Byline-darwin-arm64/Byline.app
 npm run deploy    # 打包 + 安装到 /Applications（自动移除隔离属性）
 ```
 
-构建未签名；如果 Gatekeeper 拦截双击，右键 → **打开** 一次即可，或执行
-`xattr -dr com.apple.quarantine dist/Byline-darwin-arm64/Byline.app`。
-
-环境要求：Apple Silicon 的 macOS、Node.js ≥ 20、Xcode Command Line Tools
-（编译 node-pty 用）。
+源码构建未签名；如果 Gatekeeper 拦截双击，右键 → **打开** 一次即可。
+环境要求：Node.js ≥ 20、Xcode Command Line Tools（编译 node-pty 用）。
+维护者发版：`npm run release` 产出签名 + 公证的 DMG，见
+[byline-app/RELEASING.md](byline-app/RELEASING.md)。
 
 ## 仓库结构
 
@@ -168,7 +171,7 @@ byline-terminal/       早期单文件 HTML 设计原型（仅存档）
 - 内置更多 agent 的 hook 适配
 - 移交支持更多 agent（不止 `claude` ↔ `codex`，如 `cursor-agent`、`gemini`）
 - 分屏；会话跨启动持久化
-- 签名、公证的 `.app` / `.dmg` 发布；Intel (x64) 构建
+- Intel (x64) 构建；Homebrew Cask
 - 根据真实使用调优各 agent 的"需要确认"识别模式
 
 ## 参与

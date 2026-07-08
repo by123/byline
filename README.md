@@ -19,7 +19,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> Early release (`v0.7.0`) · macOS · Apple Silicon (arm64) · unsigned local build
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.0` · macOS · Apple Silicon (arm64) · signed & notarized
 
 ---
 
@@ -140,7 +140,11 @@ Everything else goes straight to the shell.
 
 ## Install
 
-Byline is currently built from source (signed releases are on the roadmap):
+**[Download the latest release](https://github.com/by123/byline/releases/latest)** — a
+signed, notarized DMG: open it, drag Byline into Applications, done. No Gatekeeper
+warnings. Requires macOS on Apple Silicon (arm64).
+
+### Build from source
 
 ```bash
 git clone https://github.com/by123/byline.git
@@ -150,18 +154,17 @@ npm run rebuild   # first time only: builds node-pty against Electron's ABI
 npm start         # run in development
 ```
 
-Build and install the real `Byline.app`:
+Build and install your own `Byline.app`:
 
 ```bash
-npm run package   # -> dist/Byline-darwin-arm64/Byline.app
+npm run package   # unsigned local build -> dist/Byline-darwin-arm64/Byline.app
 npm run deploy    # package + install into /Applications (removes quarantine)
 ```
 
-The build is unsigned; if Gatekeeper blocks a double-click, right-click → **Open** once,
-or `xattr -dr com.apple.quarantine dist/Byline-darwin-arm64/Byline.app`.
-
-Requirements: macOS on Apple Silicon, Node.js ≥ 20, Xcode Command Line Tools (for the
-node-pty rebuild).
+Source builds are unsigned; if Gatekeeper blocks a double-click, right-click → **Open**
+once. Requirements: Node.js ≥ 20, Xcode Command Line Tools (for the node-pty rebuild).
+Maintainers: `npm run release` produces the signed + notarized DMG — see
+[byline-app/RELEASING.md](byline-app/RELEASING.md).
 
 ## Repository layout
 
@@ -187,7 +190,7 @@ byline-terminal/       Early single-file HTML design prototype (reference only)
 - Hook adapters for more agents out of the box
 - More handoff targets beyond `claude` ↔ `codex` (e.g. `cursor-agent`, `gemini`)
 - Split panes; session persistence across launches
-- Signed, notarized `.app` / `.dmg` releases; Intel (x64) build
+- Intel (x64) build; Homebrew Cask
 - Tune per-agent "needs confirmation" patterns from real-world usage
 
 ## Contributing
