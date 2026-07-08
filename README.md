@@ -4,6 +4,8 @@
 
 **A macOS terminal that watches your AI agents work.**
 
+![Byline — Claude paused on a confirmation while Codex keeps thinking, statuses live in the sidebar](showcase.png)
+
 Run `claude`, `codex`, `cursor-agent` — or any terminal AI agent — each in its own tab,
 and let Byline tell you at a glance which one is **thinking**, which is **waiting for
 your confirmation**, and which is **done**. Stop babysitting agents: drive several in
@@ -12,10 +14,10 @@ parallel and jump in only when one actually needs you.
 Byline is a *real* terminal underneath, not a wrapper UI: [xterm.js](https://xtermjs.org/)
 over a genuine PTY ([node-pty](https://github.com/microsoft/node-pty)) running your own
 interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zshrc` and
-Powerlevel10k prompt — everything just works.
+Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
+default, switchable in Preferences).
 
 > Early release (`v0.7.0`) · macOS · Apple Silicon (arm64) · unsigned local build
-> UI labels are currently in Chinese; i18n is on the roadmap.
 
 ---
 
@@ -156,7 +158,6 @@ byline-terminal/       Early single-file HTML design prototype (reference only)
 
 ## Roadmap
 
-- UI i18n (English interface labels)
 - Hook adapters for more agents out of the box
 - Split panes; session persistence across launches
 - Signed, notarized `.app` / `.dmg` releases; Intel (x64) build
