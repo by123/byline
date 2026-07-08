@@ -1,13 +1,17 @@
 // Byline preload: sandboxed bridge between the xterm.js renderer and the PTY sessions.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('byline', {
   start:  (id, cols, rows) => ipcRenderer.send('pty:start',  { id, cols, rows }),
   input:  (id, data)       => ipcRenderer.send('pty:input',  { id, data }),
+  ack:    (id, n)          => ipcRenderer.send('pty:ack',    { id, n }),
   resize: (id, cols, rows) => ipcRenderer.send('pty:resize', { id, cols, rows }),
   kill:   (id)             => ipcRenderer.send('pty:kill',   { id }),
   zoomWindow: ()           => ipcRenderer.send('win:zoom'),
   openExternal: (url)      => ipcRenderer.send('shell:open-external', { url }),
+  // file paste / drag-drop -> full paths (File.path was removed in Electron 32)
+  pathForFile: (f)         => { try { return webUtils.getPathForFile(f); } catch (_) { return ''; } },
+  clipboardFiles: ()       => ipcRenderer.invoke('clipboard:files'),
   onData: (cb) => ipcRenderer.on('pty:data', (_e, d) => cb(d)),
   onExit: (cb) => ipcRenderer.on('pty:exit', (_e, d) => cb(d)),
   // configurable menu / shortcuts

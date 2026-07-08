@@ -1,8 +1,9 @@
 // Byline main process. A real terminal: each session is a genuine interactive login zsh
 // running on a PTY (node-pty). Raw bytes pass straight through to xterm.js in the renderer,
 // so everything works: p10k prompt, native tab completion, colors, vim, ssh, claude, codex.
-const { app, BrowserWindow, ipcMain, nativeTheme, screen, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, screen, Menu, shell, clipboard } = require('electron');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const os = require('os');
 const fs = require('fs');
 const pty = require('node-pty');
@@ -24,7 +25,22 @@ function ensureShellDir() {
     }
   } catch (_) { RT_SHELL = SHELL_INT; }
 }
-const sessions = new Map();               // id -> pty process
+const sessions = new Map();               // id -> {p, buf, bufLen, flushT, unacked, paused}
+
+// Renderer ids become env vars and status filenames; reject anything that could traverse paths.
+const validId = (id) => typeof id === 'string' && /^[0-9A-Za-z-]{1,64}$/.test(id);
+
+// PTY -> renderer flow control. xterm.js parses slower than a PTY can produce (and discards
+// data past a 50MB backlog), so we count bytes in flight and pause the PTY when the renderer
+// falls behind. Chunks are also coalesced per 8ms tick: one IPC message per frame, not per read.
+const HIGH_WATER = 512 * 1024, LOW_WATER = 128 * 1024;
+function flushPty(id, s) {
+  if (!s.bufLen) return;
+  const data = s.buf.join(''); s.buf.length = 0; s.bufLen = 0;
+  s.unacked += data.length;
+  if (win && !win.isDestroyed()) win.webContents.send('pty:data', { id, data });
+  if (!s.paused && s.unacked > HIGH_WATER) { s.paused = true; try { s.p.pause(); } catch (_) {} }
+}
 
 // Read the per-session status files that ai-light's hook writes (keyed by BYLINE_SID) and
 // push each change to the renderer as authoritative status for that tab. We poll + rescan
@@ -38,7 +54,7 @@ function pollHookStates() {
     if (id.endsWith('.tmp')) continue;
     let state;
     try { state = fs.readFileSync(path.join(STATUS_DIR, id), 'utf8').trim(); } catch (_) { continue; }
-    if (state && _hookStates[id] !== state) {
+    if (state && _hookStates[id] !== state && sessions.has(id)) {   // only sessions owned by this instance
       _hookStates[id] = state;
       if (win && !win.isDestroyed()) win.webContents.send('hook:state', { id, state });
     }
@@ -46,7 +62,16 @@ function pollHookStates() {
 }
 function watchHookStates() {
   try { fs.mkdirSync(STATUS_DIR, { recursive: true }); } catch (_) {}
-  try { for (const f of fs.readdirSync(STATUS_DIR)) fs.unlinkSync(path.join(STATUS_DIR, f)); } catch (_) {} // drop stale from prior runs
+  // STATUS_DIR is shared across instances (dev + installed can run together): never wipe it
+  // wholesale, only drop files old enough to be leftovers from a crashed run. Live sessions
+  // clean up after themselves in killAll / pty:kill.
+  try {
+    const now = Date.now();
+    for (const f of fs.readdirSync(STATUS_DIR)) {
+      const fp = path.join(STATUS_DIR, f);
+      try { if (now - fs.statSync(fp).mtimeMs > 86400e3) fs.unlinkSync(fp); } catch (_) {}
+    }
+  } catch (_) {}
   _hookStates = {};
   try { fs.watch(STATUS_DIR, () => pollHookStates()); } catch (_) {}  // instant on change
   setInterval(pollHookStates, 600);                                   // robust fallback
@@ -73,17 +98,24 @@ function createWindow() {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', e => e.preventDefault());
+  // a reloaded/crashed renderer regenerates its session ids: reap the old PTYs or they leak
+  win.webContents.on('render-process-gone', () => killAll());
+  win.webContents.on('did-start-navigation', e => { if (e.isMainFrame && !e.isSameDocument) killAll(); });
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { killAll(); win = null; });
 }
 
 function killAll() {
-  for (const p of sessions.values()) { try { p.kill(); } catch (_) {} }
+  for (const [id, s] of sessions) {
+    clearTimeout(s.flushT);
+    try { s.p.kill(); } catch (_) {}
+    try { fs.unlinkSync(path.join(STATUS_DIR, id)); } catch (_) {}
+  }
   sessions.clear();
 }
 
 ipcMain.on('pty:start', (_e, { id, cols, rows }) => {
-  if (sessions.has(id)) return;
+  if (!validId(id) || sessions.has(id)) return;
   const shellPath = process.env.SHELL || '/bin/zsh';
   const p = pty.spawn(shellPath, ['-il'], {
     name: 'xterm-256color',
@@ -99,9 +131,26 @@ ipcMain.on('pty:start', (_e, { id, cols, rows }) => {
       BYLINE_SID: id,                                      // per-tab id so ai-light hooks can report per session
     },
   });
-  p.onData(data => { if (win && !win.isDestroyed()) win.webContents.send('pty:data', { id, data }); });
-  p.onExit(() => { sessions.delete(id); if (win && !win.isDestroyed()) win.webContents.send('pty:exit', { id }); });
-  sessions.set(id, p);
+  const s = { p, buf: [], bufLen: 0, flushT: null, unacked: 0, paused: false };
+  p.onData(data => {
+    s.buf.push(data); s.bufLen += data.length;
+    if (s.bufLen >= 65536) { clearTimeout(s.flushT); s.flushT = null; flushPty(id, s); }
+    else if (!s.flushT) s.flushT = setTimeout(() => { s.flushT = null; flushPty(id, s); }, 8);
+  });
+  p.onExit(() => {
+    clearTimeout(s.flushT); s.flushT = null;
+    flushPty(id, s);                                       // deliver the final output before the exit event
+    sessions.delete(id);
+    if (win && !win.isDestroyed()) win.webContents.send('pty:exit', { id });
+  });
+  sessions.set(id, s);
+});
+
+// renderer confirms parsed bytes; resume the PTY once the backlog drains
+ipcMain.on('pty:ack', (_e, { id, n }) => {
+  const s = sessions.get(id); if (!s || typeof n !== 'number') return;
+  s.unacked = Math.max(0, s.unacked - n);
+  if (s.paused && s.unacked < LOW_WATER) { s.paused = false; try { s.p.resume(); } catch (_) {} }
 });
 
 // Double-click title bar: maximize when small, or restore to 2/3 of the screen (centered) when large.
@@ -127,9 +176,33 @@ ipcMain.on('win:zoom', () => zoomWindow());
 
 ipcMain.on('shell:open-external', (_e, { url }) => { if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url); });
 
-ipcMain.on('pty:input',  (_e, { id, data }) => { const p = sessions.get(id); if (p) p.write(data); });
-ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const p = sessions.get(id); if (p) { try { p.resize(cols, rows); } catch (_) {} } });
-ipcMain.on('pty:kill',   (_e, { id }) => { const p = sessions.get(id); if (p) { try { p.kill(); } catch (_) {} } sessions.delete(id); try { fs.unlinkSync(path.join(STATUS_DIR, id)); } catch (_) {} });
+// Finder's Cmd+C puts file *references* on the pasteboard, not paths, so the renderer can't
+// read them from the DOM paste event alone. Resolve them here: NSFilenamesPboardType is an
+// XML plist listing every copied file; public.file-url covers single-file copies from other apps.
+ipcMain.handle('clipboard:files', () => {
+  const out = [];
+  const unesc = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
+  try {
+    const buf = clipboard.readBuffer('NSFilenamesPboardType');
+    if (buf && buf.length) {
+      const re = /<string>([\s\S]*?)<\/string>/g;
+      let m; while ((m = re.exec(buf.toString('utf8')))) out.push(unesc(m[1]));
+    }
+  } catch (_) {}
+  if (!out.length) {
+    try { const u = clipboard.read('public.file-url'); if (u) out.push(fileURLToPath(u.trim())); } catch (_) {}
+  }
+  return out.filter(p => { try { return typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p); } catch (_) { return false; } });
+});
+
+ipcMain.on('pty:input',  (_e, { id, data }) => { const s = sessions.get(id); if (s) s.p.write(data); });
+ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const s = sessions.get(id); if (s) { try { s.p.resize(cols, rows); } catch (_) {} } });
+ipcMain.on('pty:kill',   (_e, { id }) => {
+  const s = sessions.get(id);
+  if (s) { clearTimeout(s.flushT); try { s.p.kill(); } catch (_) {} }
+  sessions.delete(id);
+  if (validId(id)) { try { fs.unlinkSync(path.join(STATUS_DIR, id)); } catch (_) {} }
+});
 
 // The app menu is data-driven: the renderer sends the user's configurable quick-launch
 // commands (label/command/accelerator) and we build the "会话" menu from them, so the

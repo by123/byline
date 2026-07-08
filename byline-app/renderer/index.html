@@ -80,6 +80,8 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 
 .body{flex:1 1 auto;display:flex;min-height:0;}
 #terminals{flex:1 1 auto;position:relative;background:var(--term-bg);min-width:0;}
+body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:30;pointer-events:none;
+  border:2px dashed var(--accent);border-radius:10px;background:var(--accent-soft);}
 .session{position:absolute;inset:0;padding:8px 8px 6px 12px;display:none;}
 .session.active{display:block;}
 .session .xterm{height:100%;}
@@ -345,7 +347,10 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   const Clipboard=window.ClipboardAddon&&(window.ClipboardAddon.ClipboardAddon||window.ClipboardAddon);
   const terminalsEl=$('#terminals'), tabsEl=$('#tabs'), listEl=$('#sessList'), newTabBtn=$('#newTab');
   const sessions=new Map();
-  let seq=0, activeId=null, fontSize=13;
+  let activeId=null, fontSize=13;
+  // ids double as BYLINE_SID env vars and hook status filenames, shared across app instances
+  // (dev + installed can run together), so they must be globally unique — not S1, S2, ...
+  const newId=()=>(crypto.randomUUID?crypto.randomUUID():'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,10));
   let theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
   document.documentElement.dataset.theme=theme;
 
@@ -431,15 +436,17 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   function onOsc133(id,payload){
     const s=sessions.get(id); if(!s) return;
     const k=payload[0];
-    if(k==='C'){ s.cmdActive=true; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
-    else if(k==='D'){ s.cmdActive=false; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
+    // 133 only fires at the real zsh prompt, so C/D mean the hook's program (claude/codex)
+    // isn't running: hand status authority back to the heuristics until hooks re-assert it.
+    if(k==='C'){ s.hookDriven=false; s.cmdActive=true; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
+    else if(k==='D'){ s.hookDriven=false; s.cmdActive=false; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
   }
 
   /* ---------- sessions ---------- */
   function newSession(opts){
     opts=opts||{};
-    const id='S'+(++seq);
-    const box=el('div','session'); terminalsEl.appendChild(box);
+    const id=newId();
+    const box=el('div','session'); box.dataset.sid=id; terminalsEl.appendChild(box);
     const term=new Terminal({fontFamily:"'SF Mono','JetBrains Mono',ui-monospace,'Menlo',monospace",fontSize,lineHeight:1.32,
       cursorBlink:true,cursorStyle:'bar',cursorWidth:2,allowProposedApi:true,macOptionIsMeta:true,scrollback:8000,
       fontWeight:'400',fontWeightBold:'600',theme:THEMES[theme],rescaleOverlappingGlyphs:true,
@@ -501,7 +508,7 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 
   byline.onData(({id,data})=>{
     const s=sessions.get(id); if(!s) return;
-    s.term.write(data);
+    s.term.write(data,()=>byline.ack(id,data.length));   // ack parsed bytes -> main resumes a paused PTY
     if(!s.cmdActive) return;
     s.lastByteTs=Date.now();
     s.tail+=data; if(s.tail.length>2600) s.tail=s.tail.slice(-1800);
@@ -511,6 +518,58 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
     scheduleSettle(id);
   });
   byline.onExit(({id})=>{ if(sessions.has(id)) closeSession(id); });
+
+  /* ---------- file paste & drag-drop: insert full paths, like Terminal.app ---------- */
+  const quotePath=p=>/[^A-Za-z0-9_\-./~+=:,@]/.test(p)?("'"+p.replace(/'/g,"'\\''")+"'"):p;   // zsh-safe
+  function pastePaths(sid,paths){
+    const s=sessions.get(sid)||sessions.get(activeId); if(!s||!paths.length) return;
+    s.term.paste(paths.map(quotePath).join(' ')+' ');   // term.paste -> bracketed paste + normal input path
+  }
+  function filePathsFromDT(dt){
+    const out=[];
+    if(dt&&dt.files&&dt.files.length){ for(const f of dt.files){ const p=byline.pathForFile(f); if(p) out.push(p); } }
+    if(!out.length&&dt){   // some sources only provide file:// URLs (e.g. dragged from other apps)
+      for(const line of (dt.getData('text/uri-list')||'').split(/\r?\n/)){
+        const u=line.trim();
+        if(/^file:\/\//i.test(u)){ try{ out.push(decodeURIComponent(new URL(u).pathname)); }catch(_){} }
+      }
+    }
+    return out;
+  }
+  // Cmd+V after copying a file in Finder: the clipboard holds file references, not text.
+  // Intercept before xterm's own paste handler; plain-text pastes fall through untouched.
+  window.addEventListener('paste',e=>{
+    const box=e.target&&e.target.closest?e.target.closest('.session'):null; if(!box) return;
+    const dt=e.clipboardData; if(!dt) return;
+    const hasFile=(dt.files&&dt.files.length)||[...(dt.items||[])].some(i=>i.kind==='file')||[...(dt.types||[])].includes('text/uri-list');
+    if(!hasFile) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const sid=box.dataset.sid, text=dt.getData('text/plain'), direct=filePathsFromDT(dt);
+    if(direct.length){ pastePaths(sid,direct); return; }
+    byline.clipboardFiles().then(paths=>{
+      if(paths&&paths.length) pastePaths(sid,paths);
+      else if(text){ const s=sessions.get(sid); s&&s.term.paste(text); }   // looked like files but wasn't: keep the paste
+    });
+  },true);
+  // drop a file onto the terminal / a tab / a sidebar row: insert into that session (no tab switch)
+  let dragDepth=0;
+  const isFileDrag=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].some(t=>t==='Files'||t==='text/uri-list');
+  const endFileDrag=()=>{ dragDepth=0; document.body.classList.remove('file-drag'); };
+  addEventListener('dragover',e=>{ if(isFileDrag(e)){ e.preventDefault(); e.dataTransfer.dropEffect='copy'; } });
+  addEventListener('dragenter',e=>{ if(isFileDrag(e)&&++dragDepth===1) document.body.classList.add('file-drag'); });
+  addEventListener('dragleave',()=>{ if(dragDepth>0&&--dragDepth===0) document.body.classList.remove('file-drag'); });
+  addEventListener('dragend',endFileDrag);
+  addEventListener('drop',e=>{
+    endFileDrag();
+    if(!isFileDrag(e)) return;
+    e.preventDefault();
+    const t=e.target&&e.target.closest?e.target.closest('.tab,.sess,.session'):null;
+    const sid=(t&&t.dataset.sid)||activeId;
+    const paths=filePathsFromDT(e.dataTransfer);
+    if(paths.length){ pastePaths(sid,paths); return; }
+    const txt=e.dataTransfer.getData('text/plain')||e.dataTransfer.getData('text/uri-list');   // e.g. a URL dragged from a browser
+    if(txt){ const s=sessions.get(sid); s&&s.term.paste(txt); }
+  });
 
   let rzT; addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },70); });
 
