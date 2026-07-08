@@ -231,52 +231,54 @@ function buildMenu(payload) {
   payload = payload || {};
   const quick = Array.isArray(payload.quick) ? payload.quick : [];
   const actions = Array.isArray(payload.actions) ? payload.actions : [];
+  const L = payload.labels || {};                    // localized labels from the renderer (default English)
+  const lb = (k, fb) => L[k] || fb;
   const send = (d) => { if (win && !win.isDestroyed()) win.webContents.send('menu:action', d); };
   const accOf = (id) => { const a = actions.find(x => x.id === id); return (a && a.accel) ? a.accel : undefined; };
   const labelOf = (id, fb) => { const a = actions.find(x => x.id === id); return (a && a.label) || fb; };
   const act = (id, fb) => ({ label: labelOf(id, fb), accelerator: accOf(id), click: () => send({ type: 'action', id }) });
 
   const quickItems = quick.filter(q => q && q.cmd).map(q => ({
-    label: '新建 ' + (q.label || q.cmd) + ' 会话',
+    label: lb('newQuickSession', 'New {name} session').replace('{name}', q.label || q.cmd),
     accelerator: q.accel || undefined,
     click: () => send({ type: 'newQuick', cmd: q.cmd, label: q.label || q.cmd }),
   }));
   const sessionSub = quickItems.slice();
   if (quickItems.length) sessionSub.push({ type: 'separator' });
-  sessionSub.push(act('newShell', '新建终端'));
-  sessionSub.push(act('closeTab', '关闭当前标签'));
+  sessionSub.push(act('newShell', 'New terminal'));
+  sessionSub.push(act('closeTab', 'Close current tab'));
 
   const opSub = [
-    act('rename', '重命名当前标签'),
-    act('sidebar', '显示/隐藏会话栏'),
-    act('palette', '命令面板'),
-    act('search', '搜索'),
-    act('zoom', '缩放窗口'),
-    act('theme', '切换主题'),
-    act('clear', '清屏'),
+    act('rename', 'Rename current tab'),
+    act('sidebar', 'Show/hide sessions sidebar'),
+    act('palette', 'Command palette'),
+    act('search', 'Search'),
+    act('zoom', 'Zoom window'),
+    act('theme', 'Toggle theme'),
+    act('clear', 'Clear screen'),
   ];
 
   const template = [
     { label: 'Byline', submenu: [
       { role: 'about' },
       { type: 'separator' },
-      { label: '偏好设置…', accelerator: accOf('settings') || 'Cmd+,', click: () => send({ type: 'action', id: 'settings' }) },
+      { label: lb('settings', 'Preferences…'), accelerator: accOf('settings') || 'Cmd+,', click: () => send({ type: 'action', id: 'settings' }) },
       { type: 'separator' },
       { role: 'services' }, { type: 'separator' },
       { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' },
       { role: 'quit' },
     ]},
-    { label: '会话', submenu: sessionSub },
-    { label: '操作', submenu: opSub },
-    { label: '编辑', submenu: [
+    { label: lb('menuSession', 'Session'), submenu: sessionSub },
+    { label: lb('menuOps', 'Actions'), submenu: opSub },
+    { label: lb('menuEdit', 'Edit'), submenu: [
       { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
       { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
     ]},
-    { label: '视图', submenu: [
+    { label: lb('menuView', 'View'), submenu: [
       { role: 'toggleDevTools' },
       { type: 'separator' }, { role: 'togglefullscreen' },
     ]},
-    { label: '窗口', submenu: [
+    { label: lb('menuWindow', 'Window'), submenu: [
       { role: 'minimize' }, { role: 'zoom' }, { role: 'front' },
     ]},
   ];
