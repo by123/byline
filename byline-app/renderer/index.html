@@ -199,6 +199,12 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 .ctxmenu .mi.danger:hover{background:var(--wait-soft);color:var(--wait);}
 .ctxmenu .mi.disabled{color:var(--faint);pointer-events:none;}
 .ctxmenu .sep{height:1px;background:var(--border);margin:5px 8px;}
+
+/* transient notice (e.g. handoff errors) */
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);z-index:70;max-width:70%;
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);
+  padding:9px 14px;font-size:12.5px;color:var(--text);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;}
+.toast.show{opacity:1;transform:translateX(-50%);}
 </style>
 </head>
 <body>
@@ -291,6 +297,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   </div>
 
   <div class="ctxmenu" id="tabMenu" role="menu"></div>
+  <div class="toast" id="toast" role="status"></div>
 </div>
 
 <script src="vendor/xterm.js"></script>
@@ -318,11 +325,14 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   const tn=(k,n)=>{const S=BYLINE_I18N.strings;const one=n===1&&S[lang]&&S[lang][k+'_one'];return (one||t(k)).replace('{n}',n);};
   const stLabel=st=>t({idle:'stIdle',thinking:'stThinking',waiting:'stWaiting',done:'stDone'}[st]);
   const AGENTS={claude:'Claude',codex:'Codex','cursor-agent':'Cursor',cursor:'Cursor',gemini:'Gemini',aider:'Aider',ollama:'Ollama',opencode:'OpenCode',goose:'Goose'};
-  function friendly(cmdline){
+  function progOf(cmdline){
     const toks=String(cmdline||'').trim().split(/\s+/);
     let i=0;
     while(i<toks.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i]) || ['sudo','env','command','nohup','time','npx','bunx','pnpm','yarn','bun'].includes(toks[i]))) i++;
-    let p=(toks[i]||'').split('/').pop();
+    return (toks[i]||'').split('/').pop();
+  }
+  function friendly(cmdline){
+    const p=progOf(cmdline);
     if(!p) return null;
     if(AGENTS[p]) return AGENTS[p];
     return p.charAt(0).toUpperCase()+p.slice(1);
@@ -450,8 +460,8 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     const k=payload[0];
     // 133 only fires at the real zsh prompt, so C/D mean the hook's program (claude/codex)
     // isn't running: hand status authority back to the heuristics until hooks re-assert it.
-    if(k==='C'){ s.hookDriven=false; s.cmdActive=true; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
-    else if(k==='D'){ s.hookDriven=false; s.cmdActive=false; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
+    if(k==='C'){ s.hookDriven=false; s.cmdActive=true; s.agentProg=null; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
+    else if(k==='D'){ s.hookDriven=false; s.cmdActive=false; s.agentProg=null; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
   }
 
   /* ---------- sessions ---------- */
@@ -479,12 +489,21 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
         searchCount.textContent=(r&&r.resultCount>0)?((r.resultIndex+1)+'/'+r.resultCount):(searchInput.value?'0/0':''); });
     }catch(_){ search=null; } }
     const s={id,term,fit,search,box,state:'idle',cmdActive:false,turnStarted:false,turnBytes:0,burst:0,
-      lastByteTs:0,lastUserTs:0,tail:'',settle:null,base:'zsh',name:(opts.title||'zsh'),custom:false,hookDriven:false};
+      lastByteTs:0,lastUserTs:0,tail:'',settle:null,base:'zsh',name:(opts.title||'zsh'),custom:false,hookDriven:false,
+      agentProg:null,pendingAgent:null,cwd:''};
     sessions.set(id,s);
     buildTab(s); buildRow(s);
     try{
       term.parser.registerOscHandler(133,d=>{ onOsc133(id,d); return true; });
-      term.parser.registerOscHandler(697,d=>{ const f=friendly(d); if(f) setName(id,f); return true; });
+      term.parser.registerOscHandler(697,d=>{
+        const f=friendly(d); if(f) setName(id,f);
+        const p=progOf(d);
+        // a handoff tab runs `sh …/handoffs/…/run.sh`, which execs the target agent:
+        // credit that tab to the agent it was created for, so chained handoffs work
+        s.agentProg=(p==='claude'||p==='codex')?p:((s.pendingAgent&&String(d).includes('/handoffs/'))?s.pendingAgent:null);
+        return true;
+      });
+      term.parser.registerOscHandler(7,d=>{ try{ const u=new URL(String(d)); if(u.protocol==='file:'){ const p=decodeURIComponent(u.pathname); if(p) s.cwd=p; } }catch(_){} return true; });
     }catch(_){}
     term.onData(d=>{
       byline.input(id,d);
@@ -973,12 +992,43 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     e.preventDefault(); openCtxMenu(CTX,s,e.clientX,e.clientY);
   });
 
+  /* ---------- transient toast ---------- */
+  const toastEl=$('#toast'); let toastT=null;
+  function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove('show'),3600); }
+
+  /* ---------- agent handoff: claude <-> codex, one click, in a fresh tab ---------- */
+  // Main archives the source transcript to ~/.byline/handoffs/ and writes a run.sh that
+  // asks the source model for a structured summary, then execs the target CLI with an
+  // intro prompt pointing at summary + archive. We run that script in a new tab.
+  function handoffItems(){
+    return [
+      {key:'handoffToCodex',  dim:s=>s.agentProg!=='claude', run:s=>doHandoff(s,'codex')},
+      {key:'handoffToClaude', dim:s=>s.agentProg!=='codex',  run:s=>doHandoff(s,'claude')},
+    ];
+  }
+  async function doHandoff(s,dst){
+    const src=s.agentProg;
+    if(!src||src===dst) return;
+    const res=await byline.handoffPrepare({srcAgent:src,dstAgent:dst,cwd:s.cwd||'',texts:{
+      summaryPrompt:t('hSummaryPrompt'), intro:t('hIntroPrompt'),
+      generating:t('hGenerating'), warnFail:t('hWarnFail'), archived:t('hArchived')}});
+    if(!res||!res.ok){
+      toast(res&&res.err==='no-session'?t('hErrNoSession'):t('hErrFail').replace('{err}',(res&&res.err)||'?'));
+      return;
+    }
+    const nid=newSession({cmd:'sh '+quotePath(res.script), title:(dst==='codex'?'Codex':'Claude')+' ⇠ '+s.name});
+    const ns=sessions.get(nid);
+    if(ns){ ns.custom=true; ns.pendingAgent=dst; ns.cwd=s.cwd; }
+  }
+
   /* ---------- sidebar row right-click: quick commands sent straight into that session ---------- */
   function sendToSession(id,text){ byline.input(id,text+'\r'); }   // like typing it + Enter; no tab switch needed
   function sessMenuDefs(){
     const defs=[];
     for(const c of sessCmds){ if(c&&c.cmd) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)}); }
     if(defs.length) defs.push({sep:true});
+    for(const h of handoffItems()) defs.push(h);
+    defs.push({sep:true});
     defs.push({key:'editQuickCmds', run:()=>openSettings()});
     defs.push({sep:true});
     defs.push({key:'rename', run:s=>openRename(s)});
@@ -990,6 +1040,34 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     const s=sessions.get(row.dataset.sid); if(!s) return;
     e.preventDefault(); openCtxMenu(sessMenuDefs(),s,e.clientX,e.clientY);
   });
+
+  /* ---------- terminal area right-click: copy/paste + handoff + the sidebar quick commands ---------- */
+  function termMenuDefs(){
+    const defs=[
+      {key:'ctxCopy',  dim:s=>!s.term.hasSelection(), run:s=>byline.clipboardWrite(s.term.getSelection())},
+      {key:'ctxPaste', run:s=>{ byline.clipboardFiles().then(paths=>{
+        if(paths&&paths.length) pastePaths(s.id,paths);
+        else byline.clipboardText().then(txt=>{ if(txt) s.term.paste(txt); });
+      }); }},
+      {sep:true},
+    ];
+    for(const h of handoffItems()) defs.push(h);
+    defs.push({sep:true});
+    for(const c of sessCmds){ if(c&&c.cmd) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)}); }
+    defs.push({sep:true});
+    defs.push({key:'editQuickCmds', run:()=>openSettings()});
+    defs.push({sep:true});
+    defs.push({key:'rename', run:s=>openRename(s)});
+    defs.push({key:'closeSession', danger:true, run:s=>closeSession(s.id)});
+    return defs;
+  }
+  terminalsEl.addEventListener('contextmenu',e=>{
+    if(e.target.closest('.searchbar')) return;
+    const box=e.target.closest('.session'); if(!box) return;
+    const s=sessions.get(box.dataset.sid)||sessions.get(activeId); if(!s) return;
+    e.preventDefault(); openCtxMenu(termMenuDefs(),s,e.clientX,e.clientY);
+  });
+
   window.addEventListener('mousedown',e=>{ if(tabMenu.classList.contains('open') && !tabMenu.contains(e.target)) closeTabMenu(); });
   window.addEventListener('blur',closeTabMenu);
 

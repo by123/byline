@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('byline', {
   // file paste / drag-drop -> full paths (File.path was removed in Electron 32)
   pathForFile: (f)         => { try { return webUtils.getPathForFile(f); } catch (_) { return ''; } },
   clipboardFiles: ()       => ipcRenderer.invoke('clipboard:files'),
+  clipboardText: ()        => ipcRenderer.invoke('clipboard:text'),
+  clipboardWrite: (text)   => ipcRenderer.send('clipboard:write', { text }),
+  // agent handoff: archive the source session's transcript and write the run.sh
+  // that generates a summary and launches the target agent in a new tab
+  handoffPrepare: (req)    => ipcRenderer.invoke('handoff:prepare', req),
   onData: (cb) => ipcRenderer.on('pty:data', (_e, d) => cb(d)),
   onExit: (cb) => ipcRenderer.on('pty:exit', (_e, d) => cb(d)),
   // configurable menu / shortcuts

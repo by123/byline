@@ -93,10 +93,31 @@ on lifecycle events can use the same script — the protocol is agent-agnostic.
 - **Command palette** (`⌘K`) — every action and quick-launch, fuzzy-filtered
 - **Per-session quick prompts** — right-click a sidebar row to send a saved prompt
   ("continue", "commit my changes", …) straight into that session, without switching tabs
+- **Right-click menu in the terminal** — copy/paste plus the same quick prompts and
+  handoff actions, right where you're working
 - **Chrome-style tabs** — drag to reorder, double-click to rename, right-click for
   close-others / close-right
 - **Configurable shortcuts** — every action and quick command is rebindable in
   Preferences (`⌘,`)
+
+## Hand a session off between agents
+
+Right-click a running `claude` or `codex` session (in the terminal area or on its
+sidebar row) → **Hand off to Codex… / Hand off to Claude…**, and the other CLI takes
+over the work — context included:
+
+1. The source session's transcript is archived to `~/.byline/handoffs/<stamp>/`,
+   out of reach of both CLIs' retention cleanup.
+2. The *source* model distills its own session into a structured handoff summary
+   (goal, key decisions, files touched, next steps) — via
+   `claude -p --resume --fork-session` or `codex exec resume`, so the live session
+   file is never touched.
+3. A fresh tab launches the target CLI with an intro prompt pointing at the summary
+   and the raw archive, and it continues the remaining work directly.
+
+Every step runs visibly in the new tab's terminal, and chained handoffs
+(Claude → Codex → back to Claude) work too. Summary and intro prompts follow the UI
+language.
 
 ### Keyboard
 
@@ -141,7 +162,7 @@ node-pty rebuild).
 
 ```
 byline-app/            The Electron app
-├── main.js            Main process: PTY sessions, status-file watcher, app menu
+├── main.js            Main process: PTY sessions, status-file watcher, agent handoff, app menu
 ├── preload.js         Sandboxed, context-isolated window.byline bridge
 ├── renderer/
 │   ├── index.html     xterm.js UI: tabs, sidebar, status state machine, palette

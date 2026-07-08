@@ -214,6 +214,121 @@ ipcMain.handle('clipboard:files', () => {
   return out.filter(p => { try { return typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p); } catch (_) { return false; } });
 });
 
+ipcMain.handle('clipboard:text', () => { try { return clipboard.readText(); } catch (_) { return ''; } });
+ipcMain.on('clipboard:write', (_e, { text }) => { try { if (typeof text === 'string') clipboard.writeText(text); } catch (_) {} });
+
+// --- Agent handoff (claude <-> codex) -------------------------------------------------
+// One click hands a live agent session over to the other CLI: the source session's
+// transcript is copied to ~/.byline/handoffs/<stamp>/ (the archive survives both CLIs'
+// retention cleanup), and a run.sh is written that (1) asks the SOURCE model to distill
+// a structured handoff summary from its own session — claude via `-p --resume --fork-session`
+// (fork: never appends to the live session file), codex via `codex exec resume -o` (every
+// codex run writes its own rollout file, so the live TUI session is untouched) — and
+// (2) execs the target CLI with an intro prompt pointing at summary + archive. The
+// renderer runs that script in a fresh tab, so every step is visible in the terminal.
+const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+
+// Claude Code stores sessions per project dir: ~/.claude/projects/<cwd with non-alnum -> '-'>.
+// The live session is being written constantly, so newest mtime == the source session.
+function newestClaudeSession(cwd) {
+  const dir = path.join(HOME, '.claude', 'projects', String(cwd).replace(/[^A-Za-z0-9]/g, '-'));
+  let best = null, files;
+  try { files = fs.readdirSync(dir); } catch (_) { return null; }
+  for (const f of files) {
+    if (!/^[0-9a-fA-F-]{36}\.jsonl$/.test(f)) continue;   // main sessions only (<uuid>.jsonl)
+    try {
+      const fp = path.join(dir, f), m = fs.statSync(fp).mtimeMs;
+      if (!best || m > best.mtime) best = { file: fp, mtime: m, sid: f.slice(0, -6) };
+    } catch (_) {}
+  }
+  return best;
+}
+
+// Codex rollouts live in ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl; the first
+// line is a session_meta record carrying id + cwd. It can be huge (inlined base
+// instructions), so pull id/cwd with regexes from the head instead of JSON.parse.
+function newestCodexSession(cwd) {
+  const root = path.join(HOME, '.codex', 'sessions');
+  const all = [];
+  (function walk(d, depth) {
+    let ents;
+    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of ents) {
+      const fp = path.join(d, e.name);
+      if (e.isDirectory()) { if (depth < 4) walk(fp, depth + 1); }
+      else if (e.name.startsWith('rollout-') && e.name.endsWith('.jsonl')) {
+        try { all.push({ file: fp, mtime: fs.statSync(fp).mtimeMs }); } catch (_) {}
+      }
+    }
+  })(root, 0);
+  all.sort((a, b) => b.mtime - a.mtime);
+  for (const cand of all.slice(0, 50)) {
+    try {
+      const fd = fs.openSync(cand.file, 'r');
+      const buf = Buffer.alloc(65536);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      fs.closeSync(fd);
+      const head = buf.toString('utf8', 0, n);
+      const id = (head.match(/"id":"([0-9a-fA-F-]{36})"/) || [])[1];
+      const cwdM = (head.match(/"cwd":"((?:[^"\\]|\\.)*)"/) || [])[1];
+      if (!id) continue;
+      let sessCwd = null;
+      if (cwdM != null) { try { sessCwd = JSON.parse('"' + cwdM + '"'); } catch (_) {} }
+      if (!cwd || sessCwd === cwd) return { ...cand, sid: id };
+    } catch (_) {}
+  }
+  return null;
+}
+
+ipcMain.handle('handoff:prepare', (_e, req) => {
+  try {
+    req = req || {};
+    const src = req.srcAgent, dst = req.dstAgent;
+    if (!['claude', 'codex'].includes(src) || !['claude', 'codex'].includes(dst) || src === dst) return { ok: false, err: 'bad-args' };
+    const cwd = (typeof req.cwd === 'string' && path.isAbsolute(req.cwd)) ? req.cwd : HOME;
+    const tx = {};
+    for (const k of ['summaryPrompt', 'intro', 'generating', 'warnFail', 'archived']) {
+      const v = (req.texts || {})[k];
+      tx[k] = typeof v === 'string' ? v.slice(0, 4000) : '';
+    }
+    const found = src === 'claude' ? newestClaudeSession(cwd) : newestCodexSession(cwd);
+    if (!found || !found.sid) return { ok: false, err: 'no-session' };
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const dir = path.join(HOME, '.byline', 'handoffs', stamp + '-' + src + '-to-' + dst);
+    fs.mkdirSync(dir, { recursive: true });
+    const archive = path.join(dir, 'transcript.jsonl');
+    fs.copyFileSync(found.file, archive);
+    const summary = path.join(dir, 'handoff.md');
+
+    const intro = tx.intro
+      .replaceAll('{SRC}', src === 'claude' ? 'Claude' : 'Codex')
+      .replaceAll('{SUMMARY}', summary)
+      .replaceAll('{ARCHIVE}', archive);
+    const sumCmd = src === 'claude'
+      ? 'claude -p --resume ' + shq(found.sid) + ' --fork-session ' + shq(tx.summaryPrompt) + ' > ' + shq(summary)
+      : 'codex exec resume ' + shq(found.sid) + ' --skip-git-repo-check -o ' + shq(summary) + ' ' + shq(tx.summaryPrompt);
+
+    const script = path.join(dir, 'run.sh');
+    fs.writeFileSync(script, [
+      '#!/bin/sh',
+      'cd ' + shq(cwd) + ' 2>/dev/null || cd "$HOME"',
+      // the new tab's zsh reported $HOME via OSC 7 before this script ran; re-report the
+      // project dir so a chained handoff from this tab resolves sessions correctly
+      "printf '\\033]7;file://%s\\007' \"$PWD\"",
+      'echo ' + shq('📦 ' + tx.archived + ' ' + archive),
+      'echo ' + shq('⏳ ' + tx.generating),
+      sumCmd + ' || echo ' + shq('⚠️ ' + tx.warnFail),
+      'echo ""',
+      'exec ' + dst + ' ' + shq(intro),
+      '',
+    ].join('\n'), { mode: 0o755 });
+    return { ok: true, dir, script, archive, summary, sid: found.sid };
+  } catch (err) {
+    return { ok: false, err: String((err && err.message) || err) };
+  }
+});
+
 ipcMain.on('pty:input',  (_e, { id, data }) => { const s = sessions.get(id); if (s) s.p.write(data); });
 ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const s = sessions.get(id); if (s) { try { s.p.resize(cols, rows); } catch (_) {} } });
 ipcMain.on('pty:kill',   (_e, { id }) => {

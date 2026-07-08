@@ -22,7 +22,8 @@ npm run deploy    # package + install into /Applications
 
 ```
 main.js              Main process: node-pty PTY sessions, status-file watcher
-                     (/tmp/byline_sessions + legacy /tmp/ai_light_sessions), app menu
+                     (/tmp/byline_sessions + legacy /tmp/ai_light_sessions),
+                     agent handoff (claude <-> codex), app menu
 preload.js           Sandboxed window.byline bridge (context-isolated)
 renderer/index.html  xterm.js UI: tabs, sidebar, status state machine, palette, settings
 renderer/vendor/     Vendored xterm.js + addons (no CDN at runtime)
