@@ -9,7 +9,8 @@ README.zh-CN.md (zh); the app is `byline-app/`, the status protocol is `hooks/`.
 - `npm start` — dev run; `npm run rebuild` first time (node-pty vs Electron ABI)
 - `npm run package` — unsigned local build → `dist/Byline-darwin-arm64/Byline.app`
 - `npm run deploy` — package + install into /Applications
-- `npm run release` — signed + notarized + stapled app **and** DMG (the shippable artifact)
+- `npm run release` — signed + notarized + stapled app **and** DMG (the shippable
+  artifact). Universal (Apple Silicon + Intel) by default; `--arch=arm64|x64` to override.
 
 ## Release & distribution conventions
 
@@ -28,13 +29,21 @@ README.zh-CN.md (zh); the app is `byline-app/`, the status protocol is `hooks/`.
   syncs Desktop).
 - Do NOT add signing/notarization npm deps — `@electron/packager` v18 already bundles
   `@electron/osx-sign` and `@electron/notarize`.
+- Universal builds: node-pty ships per-arch Mach-O artifacts (`pty.node` +
+  `spawn-helper`); `scripts/release.js` rebuilds it for x64 and arm64 and `lipo`s the
+  results before packaging. Don't package a foreign/universal arch without this step —
+  the app would crash on the other chip.
 - Publishing = GitHub Releases on this (public) repo:
-  `gh release create v<version> byline-app/dist/Byline-<version>-arm64.dmg`.
+  `gh release create v<version> byline-app/dist/Byline-<version>-universal.dmg`.
   Release notes: English body + a short Chinese footer. READMEs link
   `releases/latest`, so no README edit is needed per release.
 - Known-harmless warning during packaging: `Could not find icon … with extension
   ".icon"` — packager probing the new macOS icon format; the `.icns` is still applied
   (verified by checksum once; don't chase it).
+- Never edit files under `byline-app/` while a universal build is running: the two
+  arch slices copy the source at different times, and `@electron/universal` fails on
+  any non-binary file whose SHA differs between slices. Repo-root files (README,
+  CLAUDE.md) are outside the packaged dir and safe to edit.
 
 ## Docs conventions
 

@@ -1,8 +1,11 @@
 # Releasing Byline (signed + notarized)
 
 `npm run release` produces a signed, notarized, stapled `Byline.app` and a
-`dist/Byline-<version>-arm64.dmg` ready for public download. `npm run package`
-stays the unsigned local-dev build.
+`dist/Byline-<version>-universal.dmg` (one image for Apple Silicon + Intel)
+ready for public download. Universal builds rebuild node-pty for both arches
+and `lipo` the artifacts automatically; pass `--arch=arm64` or `--arch=x64`
+for a single-arch build. `npm run package` stays the unsigned local-dev build
+(host arch).
 
 ## One-time setup
 

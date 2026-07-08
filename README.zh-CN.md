@@ -16,7 +16,7 @@ Byline 底层是一个*真正的*终端，不是包装出来的 UI：[xterm.js](
 login `zsh`。原生补全、颜色、`vim`、`ssh`、你的 `.zshrc` 和 Powerlevel10k 提示符 ——
 一切照常工作。界面支持 23 种语言（默认英文，可在偏好设置中切换）。
 
-> **[⬇ 下载 Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.0` · macOS · Apple Silicon (arm64) · 已签名并公证
+> **[⬇ 下载 Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.1` · macOS · 通用二进制（Apple Silicon 与 Intel）· 已签名并公证
 
 ---
 
@@ -123,7 +123,7 @@ Byline 的另一件核心大事。开工的模型未必适合收尾 —— Claud
 
 **[下载最新版本](https://github.com/by123/byline/releases/latest)** —— 已签名、
 已公证的 DMG：打开后把 Byline 拖进「应用程序」即可，无 Gatekeeper 拦截。
-要求 Apple Silicon (arm64) 的 macOS。
+通用二进制，Apple Silicon 与 Intel 芯片的 Mac 同一个安装包（macOS 10.15+）。
 
 ### 从源码构建
 
@@ -171,7 +171,7 @@ byline-terminal/       早期单文件 HTML 设计原型（仅存档）
 - 内置更多 agent 的 hook 适配
 - 移交支持更多 agent（不止 `claude` ↔ `codex`，如 `cursor-agent`、`gemini`）
 - 分屏；会话跨启动持久化
-- Intel (x64) 构建；Homebrew Cask
+- Homebrew Cask
 - 根据真实使用调优各 agent 的"需要确认"识别模式
 
 ## 参与

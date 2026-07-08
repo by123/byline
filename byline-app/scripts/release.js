@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Package Byline.app — signed, notarized and wrapped in a DMG unless --unsigned.
 //
+// Arch: --arch=arm64|x64|universal. Releases default to universal (one DMG for
+// Apple Silicon + Intel); unsigned dev builds default to the host arch.
+//
 // Unsigned (local dev, `npm run package`):
 //   node scripts/release.js --unsigned
 //
@@ -26,7 +29,12 @@ const pkg = require('../package.json');
 
 const root = path.join(__dirname, '..');
 const unsigned = process.argv.includes('--unsigned');
-const arch = 'arm64';
+const archArg = process.argv.find((a) => a.startsWith('--arch='));
+const arch = archArg ? archArg.slice('--arch='.length) : unsigned ? process.arch : 'universal';
+if (!['arm64', 'x64', 'universal'].includes(arch)) {
+  console.error(`release: unknown --arch=${arch} (use arm64, x64 or universal)`);
+  process.exit(1);
+}
 
 function fail(msg) {
   console.error(`release: ${msg}`);
@@ -81,11 +89,46 @@ function signingIdentity() {
   return m[1];
 }
 
+// node-pty ships per-arch Mach-O artifacts (pty.node + spawn-helper). A
+// universal app needs them as fat binaries: rebuild for each arch, then lipo
+// the results back into build/Release. Single foreign-arch builds just rebuild.
+async function ensureNodePty() {
+  if (arch === process.arch) return; // npm run rebuild already produced this
+  const { rebuild } = require('@electron/rebuild');
+  const electronVersion = require('electron/package.json').version;
+  const relDir = path.join(root, 'node_modules', 'node-pty', 'build', 'Release');
+  const arches = arch === 'universal' ? ['x64', 'arm64'] : [arch];
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'byline-pty-'));
+  try {
+    for (const a of arches) {
+      console.log(`Rebuilding node-pty for ${a} …`);
+      await rebuild({ buildPath: root, electronVersion, arch: a, force: true, onlyModules: ['node-pty'] });
+      fs.cpSync(relDir, path.join(tmp, a), { recursive: true });
+    }
+    if (arch === 'universal') {
+      for (const f of fs.readdirSync(path.join(tmp, 'arm64'))) {
+        const parts = arches.map((a) => path.join(tmp, a, f));
+        if (!parts.every((p) => fs.existsSync(p) && fs.statSync(p).isFile())) continue;
+        if (!execFileSync('file', ['-b', parts[0]], { encoding: 'utf8' }).includes('Mach-O')) continue;
+        execFileSync('lipo', ['-create', '-output', path.join(relDir, f), ...parts]);
+        console.log(`node-pty ${f}: now universal`);
+      }
+    } else {
+      console.log(`Note: node_modules/node-pty is now built for ${arch}; run "npm run rebuild" before "npm start".`);
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   // Validate prerequisites before the slow packaging step.
   const creds = unsigned ? null : notarizeCredentials();
   const identity = unsigned ? null : signingIdentity();
   if (!unsigned) console.log(`Signing as: ${identity}`);
+
+  await ensureNodePty();
 
   const [outDir] = await packager({
     dir: root,
@@ -101,10 +144,17 @@ async function main() {
     ignore: [
       /^\/dist/,
       /^\/scripts/,
+      /^\/RELEASING\.md$/,
       /zcompdump/,
       /zsh_history/,
       /zsh_sessions/,
-      /^\/node_modules\/node-pty\/(prebuilds|third_party|deps|src)/,
+      // node-pty's loader only reads build/{Release,Debug} and prebuilds/ — the
+      // npm-shipped bin/ prebuilds are dead weight (and single-arch, breaking universal).
+      /^\/node_modules\/node-pty\/(bin|prebuilds|third_party|deps|src)($|\/)/,
+      // Compile-time leftovers; runtime only needs build/Release/{pty.node,spawn-helper}.
+      // Single-arch .o files also break @electron/universal's Mach-O merge.
+      /^\/node_modules\/node-pty\/build\/(?!Release($|\/))/,
+      /^\/node_modules\/node-pty\/build\/Release\/(\.deps|\.forge-meta|obj\.target|node-addon-api)($|\/)/,
     ],
     ...(unsigned
       ? {}

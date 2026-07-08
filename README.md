@@ -19,7 +19,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.0` · macOS · Apple Silicon (arm64) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.1` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 ---
 
@@ -142,7 +142,8 @@ Everything else goes straight to the shell.
 
 **[Download the latest release](https://github.com/by123/byline/releases/latest)** — a
 signed, notarized DMG: open it, drag Byline into Applications, done. No Gatekeeper
-warnings. Requires macOS on Apple Silicon (arm64).
+warnings. Universal binary — one download for Apple Silicon and Intel Macs
+(macOS 10.15+).
 
 ### Build from source
 
@@ -190,7 +191,7 @@ byline-terminal/       Early single-file HTML design prototype (reference only)
 - Hook adapters for more agents out of the box
 - More handoff targets beyond `claude` ↔ `codex` (e.g. `cursor-agent`, `gemini`)
 - Split panes; session persistence across launches
-- Intel (x64) build; Homebrew Cask
+- Homebrew Cask
 - Tune per-agent "needs confirmation" patterns from real-world usage
 
 ## Contributing
