@@ -660,18 +660,18 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   const ACT_KEY='byline.actions.v1';
   const DEFAULT_QC=[
     {label:'Claude',cmd:'claude',accel:'Cmd+N'},
-    {label:'Codex',cmd:'codex',accel:'Cmd+Shift+N'},
+    {label:'Codex',cmd:'codex',accel:'Cmd+M'},   // 会话 menu precedes 窗口, so this wins over role:minimize
     {label:'Cursor',cmd:'cursor-agent',accel:''},
   ];
   const SC_KEY='byline.sesscmd.v1';
   // sidebar right-click quick commands: sent verbatim into the session (agent prompts or shell commands)
   const DEFAULT_SC=[
+    {label:'继续',          cmd:'继续'},
     {label:'Git 提交',      cmd:'把当前改动 git add 并 commit，commit message 按改动内容概括'},
     {label:'Git 推送',      cmd:'git push'},
     {label:'更新 README',   cmd:'把最近的改动同步更新到 README.md'},
     {label:'更新 CLAUDE.md',cmd:'把本次会话中新的项目约定与经验补充到 CLAUDE.md'},
     {label:'总结进展',      cmd:'总结当前进展和下一步计划'},
-    {label:'继续',          cmd:'继续'},
   ];
   // every built-in palette operation; label fixed, shortcut configurable in Settings.
   const ACTION_DEFS=[
