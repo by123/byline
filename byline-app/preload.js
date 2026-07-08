@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('byline', {
   resize: (id, cols, rows) => ipcRenderer.send('pty:resize', { id, cols, rows }),
   kill:   (id)             => ipcRenderer.send('pty:kill',   { id }),
   zoomWindow: ()           => ipcRenderer.send('win:zoom'),
+  openExternal: (url)      => ipcRenderer.send('shell:open-external', { url }),
   onData: (cb) => ipcRenderer.on('pty:data', (_e, d) => cb(d)),
   onExit: (cb) => ipcRenderer.on('pty:exit', (_e, d) => cb(d)),
   // configurable menu / shortcuts

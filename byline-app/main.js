@@ -1,7 +1,7 @@
 // Byline main process. A real terminal: each session is a genuine interactive login zsh
 // running on a PTY (node-pty). Raw bytes pass straight through to xterm.js in the renderer,
 // so everything works: p10k prompt, native tab completion, colors, vim, ssh, claude, codex.
-const { app, BrowserWindow, ipcMain, nativeTheme, screen, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, screen, Menu, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -66,6 +66,13 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // Terminal output is untrusted (OSC 8 links, agent output): links open in the default
+  // browser, never as a child window, and the app page itself can never be navigated away.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', e => e.preventDefault());
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { killAll(); win = null; });
 }
@@ -118,6 +125,8 @@ function zoomWindow() {
 }
 ipcMain.on('win:zoom', () => zoomWindow());
 
+ipcMain.on('shell:open-external', (_e, { url }) => { if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url); });
+
 ipcMain.on('pty:input',  (_e, { id, data }) => { const p = sessions.get(id); if (p) p.write(data); });
 ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const p = sessions.get(id); if (p) { try { p.resize(cols, rows); } catch (_) {} } });
 ipcMain.on('pty:kill',   (_e, { id }) => { const p = sessions.get(id); if (p) { try { p.kill(); } catch (_) {} } sessions.delete(id); try { fs.unlinkSync(path.join(STATUS_DIR, id)); } catch (_) {} });
@@ -149,6 +158,7 @@ function buildMenu(payload) {
     act('rename', '重命名当前标签'),
     act('sidebar', '显示/隐藏会话栏'),
     act('palette', '命令面板'),
+    act('search', '搜索'),
     act('zoom', '缩放窗口'),
     act('theme', '切换主题'),
     act('clear', '清屏'),

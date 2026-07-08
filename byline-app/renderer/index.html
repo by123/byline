@@ -58,6 +58,12 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 .tab:hover{background:var(--surface-2);}
 .tab.active{background:var(--surface-2);color:var(--text);border-color:var(--border);}
 .tab.attn:not(.active){box-shadow:inset 0 0 0 1px var(--wait);}
+/* drag-to-reorder: the real item becomes an invisible slot, a lifted ghost follows the cursor */
+.drag-slot{opacity:0;}
+.drag-ghost{position:fixed;z-index:100;margin:0;pointer-events:none;background:var(--surface);
+  border:1px solid var(--border-strong);box-shadow:0 10px 28px rgba(17,40,45,.28),0 2px 8px rgba(17,40,45,.16);
+  transition:transform .12s ease;will-change:transform,left,top;}
+:root[data-theme="dark"] .drag-ghost{box-shadow:0 10px 28px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.35);}
 .tab .t-close{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;color:var(--faint);opacity:0;transition:opacity .12s,background .12s;}
 .tab:hover .t-close{opacity:1;}
 .tab .t-close:hover{background:var(--surface-3);color:var(--text);}
@@ -65,6 +71,7 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   border-radius:5px;padding:1px 5px;outline:none;min-width:70px;max-width:180px;-webkit-app-region:no-drag;}
 .tab-add,.tool{width:28px;height:28px;border-radius:var(--r-ctrl);display:grid;place-items:center;color:var(--muted);
   background:transparent;border:1px solid transparent;cursor:pointer;transition:background .15s,color .15s;-webkit-app-region:no-drag;position:relative;}
+.tab-add{flex:0 0 auto;margin-left:2px;}
 .tab-add:hover,.tool:hover{background:var(--surface-2);color:var(--text);}
 .tool.on{color:var(--accent-strong);background:var(--accent-soft);}
 .tool .badge{position:absolute;top:1px;right:1px;min-width:14px;height:14px;padding:0 3px;border-radius:8px;background:var(--wait);color:#fff;font-size:9px;font-weight:700;display:none;align-items:center;justify-content:center;}
@@ -76,11 +83,28 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 .session{position:absolute;inset:0;padding:8px 8px 6px 12px;display:none;}
 .session.active{display:block;}
 .session .xterm{height:100%;}
-.xterm-viewport::-webkit-scrollbar{width:10px;}
-.xterm-viewport::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px;border:3px solid transparent;background-clip:padding-box;}
+/* xterm v6 renders a DOM scrollbar (VS Code style) with a 14px inline width — slim it to a right-aligned pill */
+.xterm .xterm-scrollable-element>.scrollbar.vertical{width:12px !important;}
+.xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{
+  width:4px !important;left:auto !important;right:3px !important;border-radius:99px;transition:width .12s ease;}
+.xterm .xterm-scrollable-element>.scrollbar.vertical:hover>.slider,
+.xterm .xterm-scrollable-element>.scrollbar.vertical>.slider.active{width:7px !important;}
 
-.sidebar{flex:0 0 250px;width:250px;display:none;flex-direction:column;border-left:1px solid var(--border);background:var(--surface-2);min-height:0;}
+/* in-scrollback search (Cmd F) */
+.searchbar{position:absolute;top:10px;right:14px;z-index:20;display:none;align-items:center;gap:4px;
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-ctrl);
+  padding:5px 7px;box-shadow:var(--shadow-pop);}
+.searchbar.open{display:flex;}
+.searchbar input{width:180px;border:none;outline:none;background:transparent;font-family:var(--font-ui);font-size:12.5px;color:var(--text);}
+.searchbar .s-count{font-size:11px;color:var(--muted);min-width:34px;text-align:right;font-variant-numeric:tabular-nums;padding-right:2px;}
+.searchbar .s-btn{width:22px;height:22px;border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;display:grid;place-items:center;padding:0;}
+.searchbar .s-btn:hover{background:var(--surface-2);color:var(--text);}
+
+.sidebar{flex:0 0 250px;width:250px;display:none;flex-direction:column;border-left:1px solid var(--border);background:var(--surface-2);min-height:0;position:relative;}
 .sidebar.open{display:flex;}
+.sb-resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:6;-webkit-app-region:no-drag;}
+.sb-resize::before{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent;transition:background .15s;}
+.sb-resize:hover::before,.sb-resize.drag::before{background:var(--accent);}
 .sb-head{padding:14px 16px 10px;display:flex;align-items:baseline;gap:8px;}
 .sb-head h2{margin:0;font-size:13px;}
 .sb-head .count{font-size:11px;color:var(--muted);margin-left:auto;text-align:right;}
@@ -107,6 +131,9 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 .s-status.s-thinking{color:var(--muted);}
 .s-status.s-waiting{color:var(--tl-yellow);font-weight:600;}
 .s-status.s-done{color:var(--tl-green);}
+.sess .s-close{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;color:var(--faint);opacity:0;flex:0 0 auto;align-self:flex-start;margin-top:-1px;transition:opacity .12s,background .12s;}
+.sess:hover .s-close{opacity:1;}
+.sess .s-close:hover{background:var(--surface-3);color:var(--text);}
 
 .scrim{position:absolute;inset:0;z-index:40;display:none;background:rgba(17,24,28,.28);backdrop-filter:blur(3px);align-items:flex-start;justify-content:center;padding-top:12vh;}
 :root[data-theme="dark"] .scrim{background:rgba(0,0,0,.45);}
@@ -133,6 +160,8 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 .set-hint{margin:0 0 14px;font-size:12px;color:var(--muted);line-height:1.5;}
 .qc-list{display:flex;flex-direction:column;gap:8px;}
 .qc{display:flex;gap:8px;align-items:center;}
+.qc .qc-grip{flex:0 0 14px;display:grid;place-items:center;color:var(--faint);cursor:grab;}
+.qc .qc-grip:active{cursor:grabbing;}
 .qc input{font-family:var(--font-ui);font-size:12.5px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-ctrl);padding:8px 10px;outline:none;}
 .qc input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring);}
 .qc .qc-label{flex:0 0 92px;min-width:0;}
@@ -155,15 +184,27 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 .rn-btn{font-size:12.5px;font-weight:600;border:1px solid var(--border);background:var(--surface-2);color:var(--text);border-radius:var(--r-ctrl);padding:8px 14px;cursor:pointer;}
 .rn-btn.primary{background:var(--accent);color:#fff;border-color:transparent;}
 .rn-btn:hover{filter:brightness(.98);}
+
+/* tab right-click context menu (Chrome-like) */
+.ctxmenu{position:fixed;z-index:60;min-width:196px;background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;box-shadow:var(--shadow-pop);padding:5px;display:none;font-size:12.5px;-webkit-app-region:no-drag;
+  user-select:none;}
+.ctxmenu.open{display:block;}
+.ctxmenu .mi{display:flex;align-items:center;gap:10px;padding:7px 11px;border-radius:6px;color:var(--text);cursor:pointer;white-space:nowrap;}
+.ctxmenu .mi:hover{background:var(--surface-2);}
+.ctxmenu .mi.danger:hover{background:var(--wait-soft);color:var(--wait);}
+.ctxmenu .mi.disabled{color:var(--faint);pointer-events:none;}
+.ctxmenu .sep{height:1px;background:var(--border);margin:5px 8px;}
 </style>
 </head>
 <body>
 <div class="window">
   <div class="titlebar">
-    <div class="tabs" id="tabs"></div>
-    <button class="tab-add" id="newTab" title="新标签 (Cmd T)" aria-label="New tab">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-    </button>
+    <div class="tabs" id="tabs">
+      <button class="tab-add" id="newTab" title="新标签 (Cmd T)" aria-label="New tab">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
     <div class="tools">
       <button class="tool has-attn" id="sidebarBtn" title="会话 (Cmd B)" aria-label="Sessions">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
@@ -182,8 +223,17 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   </div>
 
   <div class="body">
-    <div id="terminals"></div>
+    <div id="terminals">
+      <div class="searchbar" id="searchBar" role="search">
+        <input id="searchInput" placeholder="搜索" autocomplete="off" spellcheck="false" />
+        <span class="s-count" id="searchCount"></span>
+        <button class="s-btn" id="searchPrev" title="上一个 (Shift Enter)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+        <button class="s-btn" id="searchNext" title="下一个 (Enter)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="s-btn" id="searchClose" title="关闭 (Esc)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
     <aside class="sidebar open" id="sidebar" aria-label="Sessions">
+      <div class="sb-resize" id="sbResize" title="拖动调整宽度"></div>
       <div class="sb-head"><h2>会话</h2><span class="count" id="sessCount"></span></div>
       <div class="sb-legend">
         <span><i class="lg-think"></i>思考中</span>
@@ -216,6 +266,9 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
         <h3 class="set-sub">AI 会话</h3>
         <div class="qc-list" id="qcList"></div>
         <button class="qc-add" id="qcAdd">+ 添加指令</button>
+        <h3 class="set-sub">会话右键命令（右键侧边栏会话发送）</h3>
+        <div class="qc-list" id="scList"></div>
+        <button class="qc-add" id="scAdd">+ 添加命令</button>
         <h3 class="set-sub">命令面板操作</h3>
         <div class="qc-list" id="actList"></div>
         <p class="set-note">固定快捷键：⌘1-9 切换标签、⌘ +/-/0 调整字号。</p>
@@ -230,10 +283,17 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
       <div class="rn-row"><button class="rn-btn" id="renameCancel">取消</button><button class="rn-btn primary" id="renameOk">确定</button></div>
     </div>
   </div>
+
+  <div class="ctxmenu" id="tabMenu" role="menu"></div>
 </div>
 
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-webgl.js"></script>
+<script src="vendor/addon-unicode11.js"></script>
+<script src="vendor/addon-search.js"></script>
+<script src="vendor/addon-web-links.js"></script>
+<script src="vendor/addon-clipboard.js"></script>
 <script>
 (function(){
   "use strict";
@@ -262,19 +322,28 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
     bot:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg>',
     side:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>',
     zoom:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+    find:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>',
+    grip:'<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="7" cy="13" r="1.2"/></svg>',
   };
 
   const THEMES={
     light:{background:'#ffffff',foreground:'#1b1e23',cursor:'#0d9488',cursorAccent:'#ffffff',selectionBackground:'rgba(13,148,136,.20)',
+      scrollbarSliderBackground:'rgba(27,30,35,.16)',scrollbarSliderHoverBackground:'rgba(27,30,35,.28)',scrollbarSliderActiveBackground:'rgba(13,148,136,.45)',
       black:'#1b1e23',red:'#e0533d',green:'#12a150',yellow:'#c07a0c',blue:'#2563aa',magenta:'#b46bd6',cyan:'#0d9488',white:'#626a74',
       brightBlack:'#98a1ab',brightRed:'#e0533d',brightGreen:'#12a150',brightYellow:'#c07a0c',brightBlue:'#2563aa',brightMagenta:'#b46bd6',brightCyan:'#0d9488',brightWhite:'#1b1e23'},
     dark:{background:'#16191d',foreground:'#e7eaee',cursor:'#2dd4bf',cursorAccent:'#16191d',selectionBackground:'rgba(45,212,191,.28)',
+      scrollbarSliderBackground:'rgba(231,234,238,.14)',scrollbarSliderHoverBackground:'rgba(231,234,238,.26)',scrollbarSliderActiveBackground:'rgba(45,212,191,.45)',
       black:'#3b4046',red:'#ff7a63',green:'#46d17f',yellow:'#e2b04a',blue:'#7fb8ff',magenta:'#c98be0',cyan:'#5eead4',white:'#c7ccd2',
       brightBlack:'#6a747e',brightRed:'#ff8f7a',brightGreen:'#5fe08f',brightYellow:'#f0c46b',brightBlue:'#9cc9ff',brightMagenta:'#d7a3ea',brightCyan:'#7ff0e0',brightWhite:'#ffffff'}
   };
 
   const Fit=window.FitAddon&&(window.FitAddon.FitAddon||window.FitAddon);
-  const terminalsEl=$('#terminals'), tabsEl=$('#tabs'), listEl=$('#sessList');
+  const Webgl=window.WebglAddon&&(window.WebglAddon.WebglAddon||window.WebglAddon);
+  const Unicode11=window.Unicode11Addon&&(window.Unicode11Addon.Unicode11Addon||window.Unicode11Addon);
+  const Search=window.SearchAddon&&(window.SearchAddon.SearchAddon||window.SearchAddon);
+  const WebLinks=window.WebLinksAddon&&(window.WebLinksAddon.WebLinksAddon||window.WebLinksAddon);
+  const Clipboard=window.ClipboardAddon&&(window.ClipboardAddon.ClipboardAddon||window.ClipboardAddon);
+  const terminalsEl=$('#terminals'), tabsEl=$('#tabs'), listEl=$('#sessList'), newTabBtn=$('#newTab');
   const sessions=new Map();
   let seq=0, activeId=null, fontSize=13;
   let theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
@@ -295,18 +364,22 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   function buildTab(s){
     const t=el('div','tab'); const dot=el('span','dot s-idle'); const lab=el('span','t-label',s.name); const cl=el('span','t-close',IC.close);
     t.appendChild(dot); t.appendChild(lab); t.appendChild(cl);
+    t.dataset.sid=s.id;
     t.addEventListener('click',()=>activate(s.id));
     t.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });   // 双击标签 = 重命名当前标签
     cl.addEventListener('click',e=>{e.stopPropagation();closeSession(s.id);});
-    tabsEl.appendChild(t);
+    tabsEl.insertBefore(t, newTabBtn);   // keep the + button right after the last tab
     s.tabEl=t; s.tabDot=dot; s.tabLabel=lab;
   }
   function buildRow(s){
     const r=el('div','sess'); const dot=el('span','s-dot s-idle'); const main=el('div','s-main');
     const nm=el('div','s-name',s.name); const st=el('div','s-status s-idle',LABEL.idle);
-    main.appendChild(nm); main.appendChild(st); r.appendChild(dot); r.appendChild(main);
+    const cl=el('span','s-close',IC.close);
+    main.appendChild(nm); main.appendChild(st); r.appendChild(dot); r.appendChild(main); r.appendChild(cl);
+    r.dataset.sid=s.id;
     r.addEventListener('click',()=>activate(s.id));
     nm.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });
+    cl.addEventListener('click',e=>{ e.stopPropagation(); closeSession(s.id); });
     listEl.appendChild(r);
     s.rowEl=r; s.rowDot=dot; s.rowName=nm; s.rowStatus=st;
   }
@@ -369,9 +442,24 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
     const box=el('div','session'); terminalsEl.appendChild(box);
     const term=new Terminal({fontFamily:"'SF Mono','JetBrains Mono',ui-monospace,'Menlo',monospace",fontSize,lineHeight:1.32,
       cursorBlink:true,cursorStyle:'bar',cursorWidth:2,allowProposedApi:true,macOptionIsMeta:true,scrollback:8000,
-      fontWeight:'400',fontWeightBold:'600',theme:THEMES[theme]});
+      fontWeight:'400',fontWeightBold:'600',theme:THEMES[theme],rescaleOverlappingGlyphs:true,
+      linkHandler:{activate:(_e,uri)=>byline.openExternal(uri)}});   // OSC 8 links -> default browser, no confirm popup
     const fit=new Fit(); term.loadAddon(fit); term.open(box);
-    const s={id,term,fit,box,state:'idle',cmdActive:false,turnStarted:false,turnBytes:0,burst:0,
+    // GPU renderer: fills box-drawing chars (Claude Code's ╭─╮│ frames) at any lineHeight via
+    // vector custom glyphs, and keeps up with fast agent output. Must load after open().
+    let webgl=null;
+    if(Webgl){ try{ webgl=new Webgl(); term.loadAddon(webgl); webgl.onContextLoss(()=>{ try{webgl.dispose();}catch(_){} webgl=null; }); }catch(_){ webgl=null; } }
+    if(!webgl) term.options.lineHeight=1.15;   // DOM renderer can't stretch box-drawing glyphs to fill taller cells
+    if(Unicode11){ try{ term.loadAddon(new Unicode11()); term.unicode.activeVersion='11'; }catch(_){} }
+    if(Clipboard){ try{ term.loadAddon(new Clipboard()); }catch(_){} }                                 // OSC 52 (tmux/nvim/ssh copy)
+    if(WebLinks){ try{ term.loadAddon(new WebLinks((_e,uri)=>byline.openExternal(uri))); }catch(_){} } // plain-text URLs clickable
+    let search=null;
+    if(Search){ try{
+      search=new Search(); term.loadAddon(search);
+      search.onDidChangeResults(r=>{ if(id!==activeId||!searchBar.classList.contains('open')) return;
+        searchCount.textContent=(r&&r.resultCount>0)?((r.resultIndex+1)+'/'+r.resultCount):(searchInput.value?'0/0':''); });
+    }catch(_){ search=null; } }
+    const s={id,term,fit,search,box,state:'idle',cmdActive:false,turnStarted:false,turnBytes:0,burst:0,
       lastByteTs:0,lastUserTs:0,tail:'',settle:null,base:'zsh',name:(opts.title||'zsh'),custom:false,hookDriven:false};
     sessions.set(id,s);
     buildTab(s); buildRow(s);
@@ -394,15 +482,20 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   }
   function activate(id){
     if(!sessions.has(id)) return;
+    if(id!==activeId) closeSearch();
     activeId=id; applyActive(); updateBadge();
     const s=sessions.get(id);
     requestAnimationFrame(()=>{ try{s.fit.fit();}catch(_){} byline.resize(id,s.term.cols,s.term.rows); s.term.focus(); });
   }
   function closeSession(id){
     const s=sessions.get(id); if(!s) return;
+    const ord=tabOrderIds(), idx=ord.indexOf(id);   // capture visual order before removal
     clearTimeout(s.settle); byline.kill(id); try{s.term.dispose();}catch(_){}
     s.box.remove(); s.tabEl.remove(); s.rowEl.remove(); sessions.delete(id);
-    if(activeId===id){ const nx=sessions.keys().next().value; if(nx) activate(nx); else newSession(); }
+    if(activeId===id){
+      const nx=[ord[idx+1],ord[idx-1]].find(n=>n&&sessions.has(n));   // Chrome-style: right neighbor, else left
+      if(nx) activate(nx); else if(sessions.size) activate(tabOrderIds()[0]); else newSession();
+    }
     updateBadge();
   }
 
@@ -433,7 +526,7 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
       if(k==='='||k==='+'){ setFont(fontSize+1); return false; }
       if(k==='-'){ setFont(fontSize-1); return false; }
       if(k==='0'){ setFont(13); return false; }
-      if(k>='1'&&k<='9'){ const arr=[...sessions.keys()]; if(arr[+k-1]) activate(arr[+k-1]); return false; }
+      if(k>='1'&&k<='9'){ const arr=tabOrderIds(); if(arr[+k-1]) activate(arr[+k-1]); return false; }   // visual (drag-adjusted) order
     }
     return true;
   }
@@ -467,6 +560,42 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   });
   scrim.addEventListener('click',e=>{if(e.target===scrim)closePalette();});
 
+  /* ---------- in-scrollback search (Cmd F) ---------- */
+  const searchBar=$('#searchBar'), searchInput=$('#searchInput'), searchCount=$('#searchCount');
+  function searchOpts(inc){
+    const dark=theme==='dark';
+    return {incremental:!!inc, decorations:{
+      matchBackground:dark?'#5b532a':'#ffe08a', matchOverviewRuler:dark?'#e2b04a':'#c2790b',
+      activeMatchBackground:dark?'#0f766e':'#99e5dc', activeMatchColorOverviewRuler:dark?'#2dd4bf':'#0d9488'}};
+  }
+  function doSearch(inc,back){
+    const s=sessions.get(activeId); if(!s||!s.search) return;
+    const q=searchInput.value;
+    if(!q){ try{s.search.clearDecorations();}catch(_){} searchCount.textContent=''; return; }
+    try{ if(back) s.search.findPrevious(q,searchOpts(false)); else s.search.findNext(q,searchOpts(inc)); }catch(_){}
+  }
+  function openSearch(){
+    const s=sessions.get(activeId); if(!s||!s.search) return;
+    searchBar.classList.add('open');
+    searchInput.focus(); searchInput.select();
+    if(searchInput.value) doSearch(true);
+  }
+  function closeSearch(){
+    if(!searchBar.classList.contains('open')) return;
+    searchBar.classList.remove('open'); searchCount.textContent='';
+    const s=sessions.get(activeId);
+    if(s){ if(s.search){ try{s.search.clearDecorations();}catch(_){} } s.term.focus(); }
+  }
+  searchInput.addEventListener('input',()=>doSearch(true));
+  searchInput.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){ e.preventDefault(); doSearch(false,e.shiftKey); }
+    else if(e.key==='Escape'){ e.preventDefault(); closeSearch(); }
+  });
+  $('#searchPrev').addEventListener('click',()=>doSearch(false,true));
+  $('#searchNext').addEventListener('click',()=>doSearch(false));
+  $('#searchClose').addEventListener('click',closeSearch);
+
   /* ---------- quick commands + actions + settings ---------- */
   const QC_KEY='byline.quick.v1';
   const ACT_KEY='byline.actions.v1';
@@ -475,6 +604,16 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
     {label:'Codex',cmd:'codex',accel:'Cmd+Shift+N'},
     {label:'Cursor',cmd:'cursor-agent',accel:''},
   ];
+  const SC_KEY='byline.sesscmd.v1';
+  // sidebar right-click quick commands: sent verbatim into the session (agent prompts or shell commands)
+  const DEFAULT_SC=[
+    {label:'Git 提交',      cmd:'把当前改动 git add 并 commit，commit message 按改动内容概括'},
+    {label:'Git 推送',      cmd:'git push'},
+    {label:'更新 README',   cmd:'把最近的改动同步更新到 README.md'},
+    {label:'更新 CLAUDE.md',cmd:'把本次会话中新的项目约定与经验补充到 CLAUDE.md'},
+    {label:'总结进展',      cmd:'总结当前进展和下一步计划'},
+    {label:'继续',          cmd:'继续'},
+  ];
   // every built-in palette operation; label fixed, shortcut configurable in Settings.
   const ACTION_DEFS=[
     {id:'newShell', label:'新建终端',            def:'Cmd+T', ic:IC.plus,  run:()=>newSession()},
@@ -482,6 +621,7 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
     {id:'rename',   label:'重命名当前标签',      def:'Cmd+R', ic:IC.side,  run:()=>{ const s=sessions.get(activeId); if(s) openRename(s); }},
     {id:'sidebar',  label:'显示/隐藏会话栏',     def:'Cmd+B', ic:IC.side,  run:()=>toggleSidebar()},
     {id:'palette',  label:'命令面板',            def:'Cmd+K', ic:IC.side,  run:()=>{ scrim.classList.contains('open')?closePalette():openPalette(); }},
+    {id:'search',   label:'搜索',                def:'Cmd+F', ic:IC.find,  run:()=>openSearch()},
     {id:'zoom',     label:'缩放窗口',            def:'',      ic:IC.zoom,  run:()=>byline.zoomWindow&&byline.zoomWindow()},
     {id:'theme',    label:'切换主题',            def:'',      ic:IC.theme, run:toggleTheme},
     {id:'clear',    label:'清屏',                def:'',      ic:IC.trash, run:()=>{ if(activeId) byline.input(activeId,'\f'); }},
@@ -489,11 +629,12 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   ];
   function loadJSON(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(_){ return null; } }
   let quick = Array.isArray(loadJSON(QC_KEY)) ? loadJSON(QC_KEY) : DEFAULT_QC.map(x=>({...x}));
+  let sessCmds = Array.isArray(loadJSON(SC_KEY)) ? loadJSON(SC_KEY) : DEFAULT_SC.map(x=>({...x}));
   let actionAccels = (loadJSON(ACT_KEY) && typeof loadJSON(ACT_KEY)==='object') ? loadJSON(ACT_KEY) : {};
   function actionAccel(id){ if(Object.prototype.hasOwnProperty.call(actionAccels,id)) return actionAccels[id]; const d=ACTION_DEFS.find(a=>a.id===id); return d?d.def:''; }
   function menuPayload(){ return { quick, actions: ACTION_DEFS.map(a=>({id:a.id,label:a.label,accel:actionAccel(a.id)})) }; }
   function pushMenu(){ byline.updateMenu && byline.updateMenu(menuPayload()); }
-  function persistAll(){ localStorage.setItem(QC_KEY, JSON.stringify(quick)); localStorage.setItem(ACT_KEY, JSON.stringify(actionAccels)); pushMenu(); }
+  function persistAll(){ localStorage.setItem(QC_KEY, JSON.stringify(quick)); localStorage.setItem(SC_KEY, JSON.stringify(sessCmds)); localStorage.setItem(ACT_KEY, JSON.stringify(actionAccels)); pushMenu(); }
 
   function accelDisplay(a){ if(!a) return ''; return a.split('+').map(p=>({Cmd:'⌘',Ctrl:'⌃',Alt:'⌥',Shift:'⇧',Return:'↩',Space:'␣'}[p]||p)).join(''); }
   function keyToAccel(e){
@@ -529,16 +670,29 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
   }
   function renderQC(){
     const list=$('#qcList'); list.innerHTML='';
-    quick.forEach((q,i)=>{
-      const row=el('div','qc');
-      row.innerHTML='<input class="qc-label" placeholder="名称"><input class="qc-cmd" placeholder="命令，如 claude"><button class="qc-key"></button><button class="qc-del" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
+    quick.forEach(q=>{
+      const row=el('div','qc'); row._q=q;   // identity link so drag-reorder can rebuild the array from DOM order
+      row.innerHTML='<span class="qc-grip" title="拖动排序">'+IC.grip+'</span><input class="qc-label" placeholder="名称"><input class="qc-cmd" placeholder="命令，如 claude"><button class="qc-key"></button><button class="qc-del" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
       const lab=row.querySelector('.qc-label'), cmd=row.querySelector('.qc-cmd'), keyb=row.querySelector('.qc-key'), del=row.querySelector('.qc-del');
       lab.value=q.label||''; cmd.value=q.cmd||'';
       keyb.textContent=q.accel?accelDisplay(q.accel):'设置快捷键'; keyb.classList.toggle('empty',!q.accel);
       lab.addEventListener('input',()=>{ q.label=lab.value; persistAll(); });
       cmd.addEventListener('input',()=>{ q.cmd=cmd.value; persistAll(); });
       keyb.addEventListener('click',()=>recordShortcut(keyb, v=>{ q.accel=v; }));
-      del.addEventListener('click',()=>{ quick.splice(i,1); persistAll(); renderSettings(); });
+      del.addEventListener('click',()=>{ const ix=quick.indexOf(q); if(ix>=0) quick.splice(ix,1); persistAll(); renderSettings(); });
+      list.appendChild(row);
+    });
+  }
+  function renderSC(){
+    const list=$('#scList'); list.innerHTML='';
+    sessCmds.forEach(q=>{
+      const row=el('div','qc'); row._q=q;
+      row.innerHTML='<span class="qc-grip" title="拖动排序">'+IC.grip+'</span><input class="qc-label" placeholder="名称"><input class="qc-cmd" placeholder="发送到会话的命令 / 提示词"><button class="qc-del" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
+      const lab=row.querySelector('.qc-label'), cmd=row.querySelector('.qc-cmd'), del=row.querySelector('.qc-del');
+      lab.value=q.label||''; cmd.value=q.cmd||'';
+      lab.addEventListener('input',()=>{ q.label=lab.value; persistAll(); });
+      cmd.addEventListener('input',()=>{ q.cmd=cmd.value; persistAll(); });
+      del.addEventListener('click',()=>{ const ix=sessCmds.indexOf(q); if(ix>=0) sessCmds.splice(ix,1); persistAll(); renderSettings(); });
       list.appendChild(row);
     });
   }
@@ -555,10 +709,11 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
       list.appendChild(row);
     });
   }
-  function renderSettings(){ renderQC(); renderActions(); }
+  function renderSettings(){ renderQC(); renderSC(); renderActions(); }
   function openSettings(){ renderSettings(); setScrim.classList.add('open'); }
   function closeSettings(){ if(recording) return; setScrim.classList.remove('open'); const s=sessions.get(activeId); s&&s.term.focus(); }
   $('#qcAdd').addEventListener('click',()=>{ quick.push({label:'',cmd:'',accel:''}); persistAll(); renderSettings(); const inputs=$('#qcList').querySelectorAll('.qc-label'); const last=inputs[inputs.length-1]; if(last) last.focus(); });
+  $('#scAdd').addEventListener('click',()=>{ sessCmds.push({label:'',cmd:''}); persistAll(); renderSettings(); const inputs=$('#scList').querySelectorAll('.qc-label'); const last=inputs[inputs.length-1]; if(last) last.focus(); });
   $('#setClose').addEventListener('click',closeSettings);
   setScrim.addEventListener('click',e=>{ if(e.target===setScrim) closeSettings(); });
 
@@ -583,6 +738,163 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 
   /* ---------- chrome ---------- */
   $('#newTab').addEventListener('click',()=>newSession());
+
+  /* ---------- resizable sidebar ---------- */
+  (function(){
+    const sb=$('#sidebar'), handle=$('#sbResize'), SB_KEY='byline.sidebar.w';
+    const clampW=w=>Math.max(200,Math.min(600,w));
+    const setW=w=>{ sb.style.flex='0 0 '+w+'px'; sb.style.width=w+'px'; };
+    const saved=parseInt(localStorage.getItem(SB_KEY),10);
+    if(saved) setW(clampW(saved));
+    let drag=false, raf=0;
+    const fitActive=()=>{ raf=0; const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} } };
+    handle.addEventListener('mousedown',e=>{ drag=true; e.preventDefault(); handle.classList.add('drag'); document.body.style.cursor='col-resize'; document.body.style.userSelect='none'; });
+    addEventListener('mousemove',e=>{ if(!drag) return; setW(clampW(window.innerWidth-e.clientX)); if(!raf) raf=requestAnimationFrame(fitActive); });
+    addEventListener('mouseup',()=>{ if(!drag) return; drag=false; handle.classList.remove('drag'); document.body.style.cursor=''; document.body.style.userSelect='';
+      localStorage.setItem(SB_KEY, parseInt(sb.style.width,10)||250);
+      const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows); } });
+  })();
+
+  /* ---------- drag-to-reorder (tab strip + sidebar list kept in sync) ---------- */
+  // FLIP: capture visual rects, mutate the DOM, then slide each node from its old spot to the new one.
+  function flipMove(nodes, mutate){
+    const firsts=nodes.map(n=>[n,n.getBoundingClientRect()]);
+    mutate();
+    for(const [n,f] of firsts){
+      const r=n.getBoundingClientRect(), t=new DOMMatrixReadOnly(getComputedStyle(n).transform);
+      const dx=f.left-(r.left-t.m41), dy=f.top-(r.top-t.m42);   // delta vs untransformed layout, so interrupted slides stay smooth
+      n.style.transition='none'; n.style.transform=(dx||dy)?('translate('+dx+'px,'+dy+'px)'):'';
+      void n.offsetWidth;
+      n.style.transition='transform .18s ease'; n.style.transform='';
+    }
+  }
+  function applyOrder(ids){
+    const nodes=[...tabsEl.querySelectorAll('.tab'),...listEl.querySelectorAll('.sess')];
+    flipMove(nodes,()=>{ for(const id of ids){ const s=sessions.get(id); if(!s) continue; tabsEl.insertBefore(s.tabEl,newTabBtn); listEl.appendChild(s.rowEl); } });
+  }
+  function makeSortable(container, opts){
+    // hit-test against untransformed layout positions, so mid-slide neighbors don't cause flip-flop jitter
+    const rectOf=n=>{ const r=n.getBoundingClientRect(), t=new DOMMatrixReadOnly(getComputedStyle(n).transform); return {left:r.left-t.m41,top:r.top-t.m42,width:r.width,height:r.height}; };
+    container.addEventListener('mousedown', e=>{
+      if(e.button!==0) return;                                                        // left-drag only
+      if(opts.handleSel){ if(!e.target.closest(opts.handleSel)) return; }              // grip rows: drag starts on the grip only
+      else if(e.target.closest('.t-close,.s-close,.name-edit')) return;               // never from close/edit
+      const item=e.target.closest(opts.itemSel);
+      if(!item || item.parentNode!==container) return;
+      const startX=e.clientX, startY=e.clientY;
+      let active=false, ghost=null, gx=0, gy=0;
+      const onMove=ev=>{
+        if(!active){
+          if(Math.abs(ev.clientX-startX)<4 && Math.abs(ev.clientY-startY)<4) return;
+          active=true;
+          const r=item.getBoundingClientRect();
+          gx=startX-r.left; gy=startY-r.top;
+          ghost=item.cloneNode(true);                                   // lifted copy that follows the cursor
+          ghost.classList.add('drag-ghost');
+          const gi=ghost.querySelectorAll('input');                     // input .value is a property, not cloned by cloneNode
+          item.querySelectorAll('input').forEach((n,ii)=>{ if(gi[ii]) gi[ii].value=n.value; });
+          ghost.style.width=r.width+'px'; ghost.style.height=r.height+'px';
+          ghost.style.left=r.left+'px'; ghost.style.top=r.top+'px';
+          document.body.appendChild(ghost);
+          requestAnimationFrame(()=>{ if(ghost) ghost.style.transform='scale(1.05)'; });   // pick-up lift
+          item.classList.add('drag-slot');                              // stays in flow as the empty slot
+          document.body.style.userSelect='none'; document.body.style.cursor='grabbing';
+        }
+        // ghost slides along the list axis only (Chrome-style)
+        if(opts.axis==='x') ghost.style.left=(ev.clientX-gx)+'px';
+        else ghost.style.top=(ev.clientY-gy)+'px';
+        let before=null;
+        for(const sib of container.querySelectorAll(opts.itemSel)){
+          if(sib===item) continue;
+          const r=rectOf(sib);
+          const mid=opts.axis==='x'?r.left+r.width/2:r.top+r.height/2;
+          const pos=opts.axis==='x'?ev.clientX:ev.clientY;
+          if(pos<mid){ before=sib; break; }
+        }
+        const target=before||(opts.sentinelSel?container.querySelector(opts.sentinelSel):null);
+        if(item.nextElementSibling===target) return;                    // already in place
+        if(!target && container.lastElementChild===item) return;
+        const sibs=[...container.querySelectorAll(opts.itemSel)].filter(n=>n!==item);
+        flipMove(sibs,()=>{ target?container.insertBefore(item,target):container.appendChild(item); });   // neighbors get squeezed aside
+      };
+      const onUp=()=>{
+        window.removeEventListener('mousemove',onMove,true); window.removeEventListener('mouseup',onUp,true);
+        if(!active) return;
+        opts.onReorder&&opts.onReorder();
+        // the ghost glides into the freed slot, then the real item reappears underneath it
+        const g=ghost; ghost=null;
+        const r=item.getBoundingClientRect();
+        g.style.transition='left .16s ease, top .16s ease, transform .16s ease';
+        g.style.left=r.left+'px'; g.style.top=r.top+'px'; g.style.transform='scale(1)';
+        setTimeout(()=>{ g.remove(); item.classList.remove('drag-slot'); },170);
+        document.body.style.userSelect=''; document.body.style.cursor='';
+        const swallow=ev=>{ ev.stopPropagation(); ev.preventDefault(); };   // don't let the drag-release also activate a tab
+        window.addEventListener('click',swallow,true); setTimeout(()=>window.removeEventListener('click',swallow,true),0);
+      };
+      window.addEventListener('mousemove',onMove,true); window.addEventListener('mouseup',onUp,true);
+    });
+  }
+  makeSortable(tabsEl,{itemSel:'.tab',axis:'x',sentinelSel:'.tab-add',onReorder:()=>applyOrder([...tabsEl.querySelectorAll('.tab')].map(n=>n.dataset.sid))});
+  makeSortable(listEl,{itemSel:'.sess',axis:'y',onReorder:()=>applyOrder([...listEl.querySelectorAll('.sess')].map(n=>n.dataset.sid))});
+  // settings lists: drag the grip to reorder; array order == menu / right-click display order
+  makeSortable($('#qcList'),{itemSel:'.qc',axis:'y',handleSel:'.qc-grip',onReorder:()=>{ quick=[...$('#qcList').querySelectorAll('.qc')].map(n=>n._q).filter(Boolean); persistAll(); }});
+  makeSortable($('#scList'),{itemSel:'.qc',axis:'y',handleSel:'.qc-grip',onReorder:()=>{ sessCmds=[...$('#scList').querySelectorAll('.qc')].map(n=>n._q).filter(Boolean); persistAll(); }});
+
+  /* ---------- tab right-click context menu (Chrome-like) ---------- */
+  const tabMenu=$('#tabMenu');
+  function tabOrderIds(){ return [...tabsEl.querySelectorAll('.tab')].map(n=>n.dataset.sid).filter(id=>sessions.has(id)); }
+  function closeMany(ids){ ids.forEach(id=>closeSession(id)); }
+  const CTX=[
+    {label:'新建标签', run:()=>newSession()},
+    {sep:true},
+    {label:'重命名', run:s=>openRename(s)},
+    {sep:true},
+    {label:'关闭标签', run:s=>closeSession(s.id)},
+    {label:'关闭其他标签', danger:true, dim:()=>sessions.size<=1, run:s=>{ activate(s.id); closeMany(tabOrderIds().filter(id=>id!==s.id)); }},
+    {label:'关闭右侧标签', danger:true, dim:s=>{ const a=tabOrderIds(); return a.indexOf(s.id)>=a.length-1; }, run:s=>{ const a=tabOrderIds(); activate(s.id); closeMany(a.slice(a.indexOf(s.id)+1)); }},
+    {label:'关闭所有标签', danger:true, run:()=>closeMany(tabOrderIds())},
+  ];
+  function openCtxMenu(defs,s,x,y){
+    tabMenu.innerHTML='';
+    for(const it of defs){
+      if(it.sep){ tabMenu.appendChild(el('div','sep')); continue; }
+      const off=it.dim?it.dim(s):false;
+      const mi=el('div','mi'+(it.danger?' danger':'')+(off?' disabled':''), it.label);
+      if(!off) mi.addEventListener('click',()=>{ closeTabMenu(); it.run(s); });
+      tabMenu.appendChild(mi);
+    }
+    tabMenu.classList.add('open');
+    const mw=tabMenu.offsetWidth, mh=tabMenu.offsetHeight;
+    tabMenu.style.left=Math.max(8,Math.min(x,innerWidth-mw-8))+'px';
+    tabMenu.style.top=Math.max(8,Math.min(y,innerHeight-mh-8))+'px';
+  }
+  function closeTabMenu(){ tabMenu.classList.remove('open'); }
+  tabsEl.addEventListener('contextmenu',e=>{
+    const tabEl=e.target.closest('.tab'); if(!tabEl) return;
+    const s=sessions.get(tabEl.dataset.sid); if(!s) return;
+    e.preventDefault(); openCtxMenu(CTX,s,e.clientX,e.clientY);
+  });
+
+  /* ---------- sidebar row right-click: quick commands sent straight into that session ---------- */
+  function sendToSession(id,text){ byline.input(id,text+'\r'); }   // like typing it + Enter; no tab switch needed
+  function sessMenuDefs(){
+    const defs=[];
+    for(const c of sessCmds){ if(c&&c.cmd) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)}); }
+    if(defs.length) defs.push({sep:true});
+    defs.push({label:'编辑快捷命令…', run:()=>openSettings()});
+    defs.push({sep:true});
+    defs.push({label:'重命名', run:s=>openRename(s)});
+    defs.push({label:'关闭会话', danger:true, run:s=>closeSession(s.id)});
+    return defs;
+  }
+  listEl.addEventListener('contextmenu',e=>{
+    const row=e.target.closest('.sess'); if(!row) return;
+    const s=sessions.get(row.dataset.sid); if(!s) return;
+    e.preventDefault(); openCtxMenu(sessMenuDefs(),s,e.clientX,e.clientY);
+  });
+  window.addEventListener('mousedown',e=>{ if(tabMenu.classList.contains('open') && !tabMenu.contains(e.target)) closeTabMenu(); });
+  window.addEventListener('blur',closeTabMenu);
+
   $('#themeBtn').addEventListener('click',toggleTheme);
   $('#paletteBtn').addEventListener('click',openPalette);
   $('#sidebarBtn').addEventListener('click',()=>toggleSidebar());
@@ -593,7 +905,7 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
     if(e.target.closest('.tab-add,.tool')) return;
     byline.zoomWindow && byline.zoomWindow();
   });
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(scrim.classList.contains('open')) closePalette(); else if(setScrim.classList.contains('open')) closeSettings(); else if(renameScrim.classList.contains('open')) closeRename(); } });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(tabMenu.classList.contains('open')) closeTabMenu(); else if(scrim.classList.contains('open')) closePalette(); else if(setScrim.classList.contains('open')) closeSettings(); else if(renameScrim.classList.contains('open')) closeRename(); } });
 
   newSession();
 })();
