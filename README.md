@@ -2,14 +2,16 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-**A macOS terminal that watches your AI agents work.**
+**A macOS terminal that watches your AI agents work — and hands sessions between them.**
 
 ![Byline — Claude paused on a confirmation while Codex keeps thinking, statuses live in the sidebar](showcase.png)
 
 Run `claude`, `codex`, `cursor-agent` — or any terminal AI agent — each in its own tab,
 and let Byline tell you at a glance which one is **thinking**, which is **waiting for
 your confirmation**, and which is **done**. Stop babysitting agents: drive several in
-parallel and jump in only when one actually needs you.
+parallel and jump in only when one actually needs you. And when a session belongs in
+the other model's hands, **hand it off in one click** — Claude ↔ Codex, full context
+carried over.
 
 Byline is a *real* terminal underneath, not a wrapper UI: [xterm.js](https://xtermjs.org/)
 over a genuine PTY ([node-pty](https://github.com/microsoft/node-pty)) running your own
@@ -72,6 +74,28 @@ The hook is a no-op outside Byline, adds ~no latency (async, dependency-free POS
 and `./install.sh --uninstall` removes it cleanly. Any other agent that can run a command
 on lifecycle events can use the same script — the protocol is agent-agnostic.
 
+## Agent handoff: move a session between agents, context included
+
+The other thing Byline is built around. Sometimes the model you started with isn't
+the one to finish the job — Claude hits a usage limit mid-refactor, Codex is stuck and
+you want a second opinion, or you simply want the other model's take on a plan.
+Instead of copy-pasting context into a fresh session, right-click a running `claude`
+or `codex` session (in the terminal area or on its sidebar row) →
+**Hand off to Codex… / Hand off to Claude…**, and the other CLI takes over the work:
+
+1. The source session's transcript is archived to `~/.byline/handoffs/<stamp>/`,
+   out of reach of both CLIs' retention cleanup.
+2. The *source* model distills its own session into a structured handoff summary
+   (goal, key decisions, files touched, next steps) — via
+   `claude -p --resume --fork-session` or `codex exec resume`, so the live session
+   file is never touched.
+3. A fresh tab launches the target CLI with an intro prompt pointing at the summary
+   and the raw archive, and it continues the remaining work directly.
+
+Every step runs visibly in the new tab's terminal, and chained handoffs
+(Claude → Codex → back to Claude) work too. Summary and intro prompts follow the UI
+language.
+
 ## A real terminal
 
 - **node-pty** — each tab is a genuine interactive login `zsh`; `vim`, `ssh`, `tmux`,
@@ -99,25 +123,6 @@ on lifecycle events can use the same script — the protocol is agent-agnostic.
   close-others / close-right
 - **Configurable shortcuts** — every action and quick command is rebindable in
   Preferences (`⌘,`)
-
-## Hand a session off between agents
-
-Right-click a running `claude` or `codex` session (in the terminal area or on its
-sidebar row) → **Hand off to Codex… / Hand off to Claude…**, and the other CLI takes
-over the work — context included:
-
-1. The source session's transcript is archived to `~/.byline/handoffs/<stamp>/`,
-   out of reach of both CLIs' retention cleanup.
-2. The *source* model distills its own session into a structured handoff summary
-   (goal, key decisions, files touched, next steps) — via
-   `claude -p --resume --fork-session` or `codex exec resume`, so the live session
-   file is never touched.
-3. A fresh tab launches the target CLI with an intro prompt pointing at the summary
-   and the raw archive, and it continues the remaining work directly.
-
-Every step runs visibly in the new tab's terminal, and chained handoffs
-(Claude → Codex → back to Claude) work too. Summary and intro prompts follow the UI
-language.
 
 ### Keyboard
 
@@ -180,6 +185,7 @@ byline-terminal/       Early single-file HTML design prototype (reference only)
 ## Roadmap
 
 - Hook adapters for more agents out of the box
+- More handoff targets beyond `claude` ↔ `codex` (e.g. `cursor-agent`, `gemini`)
 - Split panes; session persistence across launches
 - Signed, notarized `.app` / `.dmg` releases; Intel (x64) build
 - Tune per-agent "needs confirmation" patterns from real-world usage

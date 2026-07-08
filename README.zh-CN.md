@@ -2,13 +2,14 @@
 
 [English](README.md) | **简体中文**
 
-**一个能看见 AI 工作状态的 macOS 终端。**
+**一个能看见 AI 工作状态、还能在 agent 之间移交会话的 macOS 终端。**
 
 ![Byline —— Claude 停在确认上、Codex 继续思考，状态实时显示在侧栏](showcase.png)
 
 把 `claude`、`codex`、`cursor-agent` —— 或任何终端 AI agent —— 各自跑在一个标签页里，
 Byline 让你一眼看清：哪个正在**思考**、哪个在**等你确认**、哪个已经**完成**。
 不用再盯着终端伺候 agent：并行驱动多个，只在真正需要你的时候切过去。
+该换模型接手时，**一键移交** —— Claude ↔ Codex，完整上下文随之带走。
 
 Byline 底层是一个*真正的*终端，不是包装出来的 UI：[xterm.js](https://xtermjs.org/) +
 真实 PTY（[node-pty](https://github.com/microsoft/node-pty)），跑的是你自己的交互式
@@ -63,6 +64,23 @@ cd hooks
 `./install.sh --uninstall` 可干净卸载。任何能在生命周期事件上执行命令的 agent
 都能复用同一个脚本 —— 协议与 agent 无关。
 
+## 会话移交：把上下文完整交给另一个 agent
+
+Byline 的另一件核心大事。开工的模型未必适合收尾 —— Claude 重构到一半撞上用量
+限制、Codex 卡住了想换个脑子、或者你就是想听听另一个模型的意见。不必往新会话里
+手动粘贴上下文：右键一个正在跑 `claude` 或 `codex` 的会话（终端区域或侧栏行均可）→
+**移交给 Codex… / 移交给 Claude…**，另一个 CLI 就会接手工作：
+
+1. 源会话的完整对话记录先存档到 `~/.byline/handoffs/<时间戳>/`，
+   不受两个 CLI 各自历史清理的影响；
+2. 由**源模型**把自己的会话提炼成一份结构化交接摘要（目标、关键决策、涉及文件、
+   下一步）—— claude 走 `claude -p --resume --fork-session`，codex 走
+   `codex exec resume`，全程不碰正在运行的会话文件；
+3. 新标签页启动目标 CLI，开场提示直接指向摘要与原始存档，接着完成剩下的工作。
+
+每一步都在新标签的终端里可见，还支持链式移交（Claude → Codex → 再回 Claude）。
+交接摘要与开场提示跟随界面语言。
+
 ## 一个真正的终端
 
 - **node-pty** —— 每个标签页都是货真价实的交互式 login `zsh`；`vim`、`ssh`、`tmux`、
@@ -86,21 +104,6 @@ cd hooks
 - **终端区域右键菜单** —— 复制/粘贴，加上同样的快捷指令与移交操作，就在你工作的地方
 - **Chrome 风格标签页** —— 拖动排序、双击重命名、右键关闭其他/右侧标签
 - **快捷键全部可配** —— 每个操作和快捷命令都能在偏好设置（`⌘,`）里重新绑定
-
-## 会话移交：把上下文交给另一个 agent
-
-右键一个正在跑 `claude` 或 `codex` 的会话（终端区域或侧栏行均可）→
-**移交给 Codex… / 移交给 Claude…**，另一个 CLI 就会带着上下文接手工作：
-
-1. 源会话的完整对话记录先存档到 `~/.byline/handoffs/<时间戳>/`，
-   不受两个 CLI 各自历史清理的影响；
-2. 由**源模型**把自己的会话提炼成一份结构化交接摘要（目标、关键决策、涉及文件、
-   下一步）—— claude 走 `claude -p --resume --fork-session`，codex 走
-   `codex exec resume`，全程不碰正在运行的会话文件；
-3. 新标签页启动目标 CLI，开场提示直接指向摘要与原始存档，接着完成剩下的工作。
-
-每一步都在新标签的终端里可见，还支持链式移交（Claude → Codex → 再回 Claude）。
-交接摘要与开场提示跟随界面语言。
 
 ### 键盘
 
@@ -163,6 +166,7 @@ byline-terminal/       早期单文件 HTML 设计原型（仅存档）
 ## 规划
 
 - 内置更多 agent 的 hook 适配
+- 移交支持更多 agent（不止 `claude` ↔ `codex`，如 `cursor-agent`、`gemini`）
 - 分屏；会话跨启动持久化
 - 签名、公证的 `.app` / `.dmg` 发布；Intel (x64) 构建
 - 根据真实使用调优各 agent 的"需要确认"识别模式
