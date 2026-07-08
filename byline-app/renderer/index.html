@@ -325,17 +325,26 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   const tn=(k,n)=>{const S=BYLINE_I18N.strings;const one=n===1&&S[lang]&&S[lang][k+'_one'];return (one||t(k)).replace('{n}',n);};
   const stLabel=st=>t({idle:'stIdle',thinking:'stThinking',waiting:'stWaiting',done:'stDone'}[st]);
   const AGENTS={claude:'Claude',codex:'Codex','cursor-agent':'Cursor',cursor:'Cursor',gemini:'Gemini',aider:'Aider',ollama:'Ollama',opencode:'OpenCode',goose:'Goose'};
-  function progOf(cmdline){
-    const toks=String(cmdline||'').trim().split(/\s+/);
-    let i=0;
-    while(i<toks.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i]) || ['sudo','env','command','nohup','time','npx','bunx','pnpm','yarn','bun'].includes(toks[i]))) i++;
-    return (toks[i]||'').split('/').pop();
+  function progsOf(cmdline){
+    // one program token per segment of a `&&` / `||` / `;` / `|` chain, so
+    // `cd proj && claude` or `claude | tee log` still surfaces the agent
+    const out=[];
+    for(const seg of String(cmdline||'').split(/&&|\|\||[;|]/)){
+      const toks=seg.trim().split(/\s+/);
+      let i=0;
+      while(i<toks.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i]) || /^-/.test(toks[i]) ||
+        ['sudo','env','command','exec','nohup','time','npx','bunx','pnpm','yarn','bun'].includes(toks[i]))) i++;
+      const p=(toks[i]||'').split('/').pop();
+      if(p) out.push(p);
+    }
+    return out;
   }
+  function agentOf(cmdline){ return progsOf(cmdline).find(p=>p==='claude'||p==='codex')||null; }
   function friendly(cmdline){
-    const p=progOf(cmdline);
-    if(!p) return null;
-    if(AGENTS[p]) return AGENTS[p];
-    return p.charAt(0).toUpperCase()+p.slice(1);
+    const ps=progsOf(cmdline);
+    if(!ps.length) return null;
+    const p=ps.find(x=>AGENTS[x])||ps[0];
+    return AGENTS[p]||p.charAt(0).toUpperCase()+p.slice(1);
   }
 
   const IC={
@@ -461,7 +470,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     // 133 only fires at the real zsh prompt, so C/D mean the hook's program (claude/codex)
     // isn't running: hand status authority back to the heuristics until hooks re-assert it.
     if(k==='C'){ s.hookDriven=false; s.cmdActive=true; s.agentProg=null; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
-    else if(k==='D'){ s.hookDriven=false; s.cmdActive=false; s.agentProg=null; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
+    else if(k==='D'){ s.hookDriven=false; s.cmdActive=false; if(s.agentProg) s.lastAgentProg=s.agentProg; s.agentProg=null; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
   }
 
   /* ---------- sessions ---------- */
@@ -490,17 +499,21 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     }catch(_){ search=null; } }
     const s={id,term,fit,search,box,state:'idle',cmdActive:false,turnStarted:false,turnBytes:0,burst:0,
       lastByteTs:0,lastUserTs:0,tail:'',settle:null,base:'zsh',name:(opts.title||'zsh'),custom:false,hookDriven:false,
-      agentProg:null,pendingAgent:null,cwd:''};
+      agentProg:null,lastAgentProg:null,pendingAgent:null,cwd:''};
     sessions.set(id,s);
     buildTab(s); buildRow(s);
     try{
       term.parser.registerOscHandler(133,d=>{ onOsc133(id,d); return true; });
       term.parser.registerOscHandler(697,d=>{
-        const f=friendly(d); if(f) setName(id,f);
-        const p=progOf(d);
+        const cmd=String(d), a=agentOf(cmd);
         // a handoff tab runs `sh …/handoffs/…/run.sh`, which execs the target agent:
         // credit that tab to the agent it was created for, so chained handoffs work
-        s.agentProg=(p==='claude'||p==='codex')?p:((s.pendingAgent&&String(d).includes('/handoffs/'))?s.pendingAgent:null);
+        if(a) s.agentProg=a;
+        else if(s.pendingAgent && cmd.includes('/handoffs/')) s.agentProg=s.pendingAgent;
+        else if(/^\s*(fg\b|%\S)/.test(cmd) && s.lastAgentProg) s.agentProg=s.lastAgentProg;  // Ctrl+Z suspend -> fg resume
+        else s.agentProg=null;
+        const f=s.agentProg?AGENTS[s.agentProg]:friendly(cmd);
+        if(f) setName(id,f);
         return true;
       });
       term.parser.registerOscHandler(7,d=>{ try{ const u=new URL(String(d)); if(u.protocol==='file:'){ const p=decodeURIComponent(u.pathname); if(p) s.cwd=p; } }catch(_){} return true; });
