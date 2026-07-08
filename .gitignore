@@ -20,3 +20,7 @@ byline-app/shell/.zcompdump*.zwc
 # Logs
 *.log
 npm-debug.log*
+
+# Local tooling state
+.lynx-memory/
+.claude/

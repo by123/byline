@@ -1,79 +1,100 @@
 # Byline
 
-**A macOS control center for running multiple terminal AI agents at once.**
+**English** | [简体中文](README.zh-CN.md)
 
-Run `claude`, `codex`, `cursor-agent` (or anything else) each in its own tab, and watch a
-live sidebar that tells you — at a glance — which agent is **running**, which **needs your
-input**, and which is **idle**. Drive several agents in parallel and only jump in when one
-is actually waiting on you.
+**A macOS terminal that watches your AI agents work.**
 
-Byline is a *real* terminal, not a wrapper: it's [xterm.js](https://xtermjs.org/) over a
-genuine PTY ([node-pty](https://github.com/microsoft/node-pty)) running your interactive
-login `zsh`. So everything just works — native tab completion, colors, `vim`, `ssh`, and
-your own `.zshrc` / Powerlevel10k prompt.
+Run `claude`, `codex`, `cursor-agent` — or any terminal AI agent — each in its own tab,
+and let Byline tell you at a glance which one is **thinking**, which is **waiting for
+your confirmation**, and which is **done**. Stop babysitting agents: drive several in
+parallel and jump in only when one actually needs you.
 
-> Status: early and local-use (`v0.7.0`). Apple Silicon (arm64), unsigned build.
+Byline is a *real* terminal underneath, not a wrapper UI: [xterm.js](https://xtermjs.org/)
+over a genuine PTY ([node-pty](https://github.com/microsoft/node-pty)) running your own
+interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zshrc` and
+Powerlevel10k prompt — everything just works.
 
----
-
-## Repository layout
-
-```
-byline-app/            The real Electron app (this is the product)
-├── main.js            Main process: node-pty PTY sessions + ZDOTDIR shell integration
-├── preload.js         Sandboxed window.byline bridge (context-isolated)
-├── renderer/
-│   ├── index.html     xterm.js UI, sessions sidebar, status state machine, palette
-│   └── vendor/        Vendored xterm.js + addon-fit + xterm.css
-├── shell/             Integration z-files: source the user's config + add OSC 133 hooks
-└── build/             App icon (icon.png / icon.icns / icon.iconset)
-
-byline-terminal/       Early single-file HTML design prototype (kept for reference)
-```
+> Early release (`v0.7.0`) · macOS · Apple Silicon (arm64) · unsigned local build
+> UI labels are currently in Chinese; i18n is on the roadmap.
 
 ---
 
-## Quick start (development)
+## Why
+
+Terminal AI agents are interactive: they stream output for minutes, then silently block
+on a `y/n` approval you didn't see. With three agents in three tabs, you either poll the
+tabs constantly or discover an hour later that everything stalled on a permission prompt.
+
+Byline turns that inside out. Every session gets a live status — a traffic light per
+tab, in the tab strip and a sessions sidebar:
+
+- 🫧 **Thinking** — the agent is actively working; the dot breathes through the
+  traffic-light colors
+- 🟡 **Needs confirmation** — it paused for you (an approval like `y/n`, `proceed?`, a
+  permission request). Background tabs light up with a badge so you can't miss it.
+- 🟢 **Done** — the turn finished; output is ready for review
+- 🔴 **Idle** — at the shell prompt, nothing running (this agent is free for work)
+
+The sidebar shows a per-session status line and a running tally
+(`3 sessions · 1 needs confirmation · 1 done`), so the whole fleet is one glance.
+
+## How status detection works
+
+Three layers, most-authoritative wins, degrading gracefully:
+
+1. **Agent hooks (authoritative)** — agents that support lifecycle hooks (e.g. Claude
+   Code) report their state through a tiny file-based protocol: write one word
+   (`think` / `confirm` / `done` / …) to `/tmp/byline_sessions/$BYLINE_SID`. Exact,
+   instant, per-tab. The bundled hook and a one-command Claude Code installer live in
+   [`hooks/`](hooks/) — see [hooks/README.md](hooks/README.md) for the full protocol.
+2. **Shell integration (exact command lifecycle)** — Byline loads via `ZDOTDIR`, sources
+   your real z-files, then adds OSC 133 markers: `preexec` = a command started, `precmd`
+   = back at the prompt. This gives a precise **running vs idle** signal for *any*
+   program, not just agents.
+3. **Output heuristics (fallback)** — while a command runs, sustained output means
+   *thinking*; output going quiet with an approval-looking tail (`y/n`, `proceed?`,
+   `❯` menus…) means *needs confirmation*. Patterns live in `renderer/index.html`
+   (`WAIT_RE`) and are easy to tune.
+
+Sessions with hook-driven status ignore the heuristics entirely; when the agent process
+exits, control hands back to the shell-integration layer automatically.
+
+### Enable authoritative status for Claude Code
 
 ```bash
-cd byline-app
-npm install       # first time only
-npm run rebuild   # first time only: builds node-pty against Electron's ABI
-npm start
+cd hooks
+./install.sh     # registers the byline-status hook in ~/.claude/settings.json
 ```
 
-## Build the app (`Byline.app`)
+The hook is a no-op outside Byline, adds ~no latency (async, dependency-free POSIX sh),
+and `./install.sh --uninstall` removes it cleanly. Any other agent that can run a command
+on lifecycle events can use the same script — the protocol is agent-agnostic.
 
-```bash
-cd byline-app
-npm run rebuild   # ensure node-pty matches Electron's ABI
-npm run package   # -> dist/Byline-darwin-arm64/Byline.app
-open dist/Byline-darwin-arm64/Byline.app
-```
+## A real terminal
 
-This produces a real macOS app named **Byline** with its own icon — not "Electron". It's
-unsigned (local use); if Gatekeeper blocks a double-click:
+- **node-pty** — each tab is a genuine interactive login `zsh`; `vim`, `ssh`, `tmux`,
+  completions and your prompt all behave exactly as in Terminal.app
+- **xterm.js + WebGL renderer** — fast rendering that keeps up with agent output, with
+  crisp box-drawing glyphs (Claude Code's `╭─╮` frames) at any line height
+- **Flow control** — PTY output is coalesced per frame and back-pressured, so a runaway
+  `cat` of a huge file can't freeze the UI
+- **Files → paths** — ⌘V a file copied in Finder, or drag files onto the window, and the
+  shell-quoted full path is inserted (like Terminal.app)
+- **Links & clipboard** — plain-text URLs and OSC 8 hyperlinks are clickable (opening in
+  your default browser), OSC 52 lets `tmux`/`nvim`/`ssh` copy to your clipboard
+- **Search** (`⌘F`), Unicode 11 width handling, 8000 lines of scrollback, light/dark themes
 
-```bash
-xattr -dr com.apple.quarantine dist/Byline-darwin-arm64/Byline.app
-```
+## Working with many sessions
 
-…or right-click the app and choose **Open** once. `npm run deploy` packages and installs
-straight into `/Applications`.
-
----
-
-## Using it
-
-- **Sessions sidebar** (right; toggle with `⌘B`) — every tab with a live status:
-  - 🟢 **Running** — the agent is actively working (streaming output).
-  - 🟡 **Needs input** — it paused for you (an approval prompt like `y/n` / "proceed?", or a
-    quiet full-screen agent UI). A background tab entering this state raises a toast, an
-    amber badge on the sidebar button, and an amber dot on the tab.
-  - ⚪ **Idle** — back at the shell prompt, nothing running.
-- **Command palette** (`⌘K`) — open agents fast: *New Claude / Codex / Cursor session*. Or
-  just type the command in any tab.
-- Click a sidebar row (or a tab) to jump to that session.
+- **Quick-launch commands** — configurable label + command + shortcut (defaults:
+  `⌘N` Claude, `⌘M` Codex); they appear in the app menu and the command palette
+- **Command palette** (`⌘K`) — every action and quick-launch, fuzzy-filtered
+- **Per-session quick prompts** — right-click a sidebar row to send a saved prompt
+  ("continue", "commit my changes", …) straight into that session, without switching tabs
+- **Chrome-style tabs** — drag to reorder, double-click to rename, right-click for
+  close-others / close-right
+- **Configurable shortcuts** — every action and quick command is rebindable in
+  Preferences (`⌘,`)
 
 ### Keyboard
 
@@ -81,50 +102,73 @@ straight into `/Applications`.
 | --- | --- | --- | --- |
 | `⌘T` | New tab | `⌘B` | Toggle sidebar |
 | `⌘W` | Close tab | `⌘K` | Command palette |
-| `⌘1..9` | Switch tab | `⌘ +/-/0` | Font size |
-| `⌘C / ⌘V` | Copy / paste | | |
+| `⌘N` / `⌘M` | New Claude / Codex | `⌘F` | Search scrollback |
+| `⌘1…9` | Switch tab (visual order) | `⌘+ / ⌘- / ⌘0` | Font size |
+| `⌘R` | Rename tab | `⌘,` | Preferences |
 
 Everything else goes straight to the shell.
 
 ---
 
-## How status detection works
+## Install
 
-- **Shell integration** (`byline-app/shell/`) — loaded via `ZDOTDIR`, it sources your real
-  z-files first and then adds OSC 133 markers (`preexec` = a command started, `precmd` =
-  returned to the prompt). This gives an exact **running vs. idle** signal. Byline copies
-  these z-files to a writable location at runtime, so zsh caches (`.zcompdump`) never touch
-  the read-only app bundle.
-- **Needs-input** is *inferred* while a command is active: output goes quiet (~1s) and
-  either the recent output matches an approval pattern (`y/n`, `proceed?`, `approve`,
-  `permission`, `❯` menus) or the program is in a full-screen (alternate-screen) UI.
-- **Hook states** — agents that write per-session state files (keyed by `BYLINE_SID` under
-  `/tmp/ai_light_sessions`) get authoritative status pushed straight to the matching tab,
-  overriding the heuristic.
+Byline is currently built from source (signed releases are on the roadmap):
 
-Status detection is heuristic; if a specific agent's prompts get misread, the patterns live
-in `renderer/index.html` (`WAIT_RE`) and are easy to tune.
+```bash
+git clone https://github.com/by123/byline.git
+cd byline/byline-app
+npm install       # first time only
+npm run rebuild   # first time only: builds node-pty against Electron's ABI
+npm start         # run in development
+```
 
----
+Build and install the real `Byline.app`:
 
-## Tech
+```bash
+npm run package   # -> dist/Byline-darwin-arm64/Byline.app
+npm run deploy    # package + install into /Applications (removes quarantine)
+```
 
-- **Electron** (main + sandboxed, context-isolated renderer)
-- **node-pty** — real interactive login `zsh` per session
-- **xterm.js** + `addon-fit` — terminal rendering, vendored locally
-- **OSC 133** shell-integration escape sequences for prompt/command lifecycle
+The build is unsigned; if Gatekeeper blocks a double-click, right-click → **Open** once,
+or `xattr -dr com.apple.quarantine dist/Byline-darwin-arm64/Byline.app`.
 
----
+Requirements: macOS on Apple Silicon, Node.js ≥ 20, Xcode Command Line Tools (for the
+node-pty rebuild).
+
+## Repository layout
+
+```
+byline-app/            The Electron app
+├── main.js            Main process: PTY sessions, status-file watcher, app menu
+├── preload.js         Sandboxed, context-isolated window.byline bridge
+├── renderer/
+│   ├── index.html     xterm.js UI: tabs, sidebar, status state machine, palette
+│   └── vendor/        Vendored xterm.js + addons (no CDN at runtime)
+├── shell/             ZDOTDIR z-files: source the user's config + OSC 133 markers
+└── build/             App icon
+
+hooks/                 The status protocol + agent hooks (see hooks/README.md)
+├── byline-status      Dependency-free POSIX sh hook: one word -> one status file
+└── install.sh         One-command install/uninstall for Claude Code
+
+byline-terminal/       Early single-file HTML design prototype (reference only)
+```
 
 ## Roadmap
 
-- Tune per-agent "needs input" patterns from real usage.
-- Split panes; persist / restore sessions across launches.
-- A signed `.app` / `.dmg` (electron-builder) + login `PATH` for clean double-click launch.
-- Intel (x64) build alongside arm64.
+- UI i18n (English interface labels)
+- Hook adapters for more agents out of the box
+- Split panes; session persistence across launches
+- Signed, notarized `.app` / `.dmg` releases; Intel (x64) build
+- Tune per-agent "needs confirmation" patterns from real-world usage
 
----
+## Contributing
+
+Issues and PRs are welcome. The codebase is intentionally small — three files of app
+code, no framework — so most changes are an afternoon, not an architecture. If an
+agent's status is detected wrong, an issue with a copy of the terminal tail is enough
+to tune the patterns.
 
 ## License
 
-MIT
+[MIT](LICENSE)
