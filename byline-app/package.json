@@ -7,7 +7,8 @@
   "scripts": {
     "start": "electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "package": "electron-packager . Byline --platform=darwin --arch=arm64 --icon=build/icon.icns --app-bundle-id=sh.byline.app --appVersion=0.7.0 --app-category-type=public.app-category.developer-tools --overwrite --out=dist --ignore=/dist --ignore=zcompdump --ignore=zsh_history --ignore=zsh_sessions --ignore='/node_modules/node-pty/(prebuilds|third_party|deps|src)'",
+    "package": "node scripts/release.js --unsigned",
+    "release": "node scripts/release.js",
     "deploy": "npm run package && rm -rf /Applications/Byline.app && cp -R dist/Byline-darwin-arm64/Byline.app /Applications/ && (xattr -dr com.apple.quarantine /Applications/Byline.app || true) && echo 'Installed to /Applications/Byline.app'"
   },
   "author": "Byline",
