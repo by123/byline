@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('byline', {
-  start:  (id, cols, rows) => ipcRenderer.send('pty:start',  { id, cols, rows }),
+  start:  (id, cols, rows, cwd) => ipcRenderer.send('pty:start',  { id, cols, rows, cwd }),
   input:  (id, data)       => ipcRenderer.send('pty:input',  { id, data }),
   ack:    (id, n)          => ipcRenderer.send('pty:ack',    { id, n }),
   resize: (id, cols, rows) => ipcRenderer.send('pty:resize', { id, cols, rows }),

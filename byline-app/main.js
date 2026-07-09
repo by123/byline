@@ -133,13 +133,15 @@ function killAll() {
   sessions.clear();
 }
 
-ipcMain.on('pty:start', (_e, { id, cols, rows }) => {
+ipcMain.on('pty:start', (_e, { id, cols, rows, cwd }) => {
   if (!validId(id) || sessions.has(id)) return;
   const shellPath = process.env.SHELL || '/bin/zsh';
+  let startCwd = HOME;                                   // open-in-same-dir: honor the renderer's requested cwd
+  if (typeof cwd === 'string' && cwd) { try { if (fs.statSync(cwd).isDirectory()) startCwd = cwd; } catch (_) {} }
   const p = pty.spawn(shellPath, ['-il'], {
     name: 'xterm-256color',
     cols: cols || 100, rows: rows || 30,
-    cwd: HOME,
+    cwd: startCwd,
     env: {
       ...process.env,
       TERM: 'xterm-256color', COLORTERM: 'truecolor',

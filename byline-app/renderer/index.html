@@ -136,6 +136,10 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 .sess .s-close{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;color:var(--faint);opacity:0;flex:0 0 auto;align-self:flex-start;margin-top:-1px;transition:opacity .12s,background .12s;}
 .sess:hover .s-close{opacity:1;}
 .sess .s-close:hover{background:var(--surface-3);color:var(--text);}
+/* auto-confirm badge: session sends Enter by itself whenever it turns 待确认 */
+.t-auto,.s-auto{display:none;flex:0 0 auto;font-size:10px;font-weight:700;line-height:15px;padding:0 4px;
+  border-radius:4px;color:var(--accent-strong);background:var(--accent-soft);}
+.tab.auto .t-auto,.sess.auto .s-auto{display:inline-block;}
 
 .scrim{position:absolute;inset:0;z-index:40;display:none;background:rgba(17,24,28,.28);backdrop-filter:blur(3px);align-items:flex-start;justify-content:center;padding-top:12vh;}
 :root[data-theme="dark"] .scrim{background:rgba(0,0,0,.45);}
@@ -277,9 +281,11 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
         <p class="set-hint" data-i18n="settingsHint">Click a button on the right to record a shortcut. Esc cancels, Delete clears.</p>
         <h3 class="set-sub" data-i18n="secQuick">AI sessions</h3>
         <div class="qc-list" id="qcList"></div>
+        <label id="sameDirOpt" style="display:flex;align-items:center;gap:8px;margin:12px 2px 2px;font-size:13px;cursor:pointer"><input type="checkbox" id="sameDirChk" style="margin:0"><span data-i18n="sameDir">Open new sessions in the current tab’s directory</span></label>
         <button class="qc-add" id="qcAdd" data-i18n="addQuick">+ Add command</button>
         <h3 class="set-sub" data-i18n="secSess">Session quick commands (sent by right-clicking a sidebar session)</h3>
         <div class="qc-list" id="scList"></div>
+        <label id="yoloCtxOpt" style="display:flex;align-items:center;gap:8px;margin:12px 2px 2px;font-size:13px;cursor:pointer"><input type="checkbox" id="yoloCtxChk" style="margin:0"><span data-i18n="showYoloCtx">Show YOLO sessions in the right-click menu</span></label>
         <button class="qc-add" id="scAdd" data-i18n="addSess">+ Add command</button>
         <h3 class="set-sub" data-i18n="secActions">Palette actions</h3>
         <div class="qc-list" id="actList"></div>
@@ -357,6 +363,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     zoom:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
     find:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>',
     grip:'<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="7" cy="13" r="1.2"/></svg>',
+    enter:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>',
   };
 
   const THEMES={
@@ -398,20 +405,22 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 
   /* ---------- incremental UI ---------- */
   function buildTab(s){
-    const t=el('div','tab'); const dot=el('span','dot s-idle'); const lab=el('span','t-label',s.name); const cl=el('span','t-close',IC.close);
-    t.appendChild(dot); t.appendChild(lab); t.appendChild(cl);
-    t.dataset.sid=s.id;
-    t.addEventListener('click',()=>activate(s.id));
-    t.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });   // 双击标签 = 重命名当前标签
+    const tb=el('div','tab'); const dot=el('span','dot s-idle'); const lab=el('span','t-label',s.name); const cl=el('span','t-close',IC.close);
+    const au=el('span','t-auto','↵'); au.dataset.i18nTitle='autoConfirm'; au.title=t('autoConfirm');
+    tb.appendChild(dot); tb.appendChild(lab); tb.appendChild(au); tb.appendChild(cl);
+    tb.dataset.sid=s.id;
+    tb.addEventListener('click',()=>activate(s.id));
+    tb.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });   // 双击标签 = 重命名当前标签
     cl.addEventListener('click',e=>{e.stopPropagation();closeSession(s.id);});
-    tabsEl.insertBefore(t, newTabBtn);   // keep the + button right after the last tab
-    s.tabEl=t; s.tabDot=dot; s.tabLabel=lab;
+    tabsEl.insertBefore(tb, newTabBtn);   // keep the + button right after the last tab
+    s.tabEl=tb; s.tabDot=dot; s.tabLabel=lab;
   }
   function buildRow(s){
     const r=el('div','sess'); const dot=el('span','s-dot s-idle'); const main=el('div','s-main');
     const nm=el('div','s-name',s.name); const st=el('div','s-status s-idle',stLabel('idle'));
     const cl=el('span','s-close',IC.close);
-    main.appendChild(nm); main.appendChild(st); r.appendChild(dot); r.appendChild(main); r.appendChild(cl);
+    const au=el('span','s-auto','↵'); au.dataset.i18nTitle='autoConfirm'; au.title=t('autoConfirm');
+    main.appendChild(nm); main.appendChild(st); r.appendChild(dot); r.appendChild(main); r.appendChild(au); r.appendChild(cl);
     r.dataset.sid=s.id;
     r.addEventListener('click',()=>activate(s.id));
     nm.addEventListener('dblclick',e=>{ e.stopPropagation(); openRename(s); });
@@ -446,7 +455,42 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   function setState(id,st){
     const s=sessions.get(id); if(!s||s.state===st) return;
     s.state=st; applyState(s); updateBadge();
+    if(st==='waiting') scheduleAuto(s); else clearTimeout(s.autoT);
   }
+
+  /* ---------- auto-confirm: opt-in per session, presses Enter on every 待确认 ---------- */
+  // Enter accepts the prompt's default/highlighted choice — same as the user hitting ⏎.
+  function scheduleAuto(s){
+    if(!s.autoConfirm||s.state!=='waiting') return;
+    clearTimeout(s.autoT);
+    s.autoT=setTimeout(()=>{
+      if(!sessions.has(s.id)||!s.autoConfirm||s.state!=='waiting') return;
+      const now=Date.now(), sig=stripAnsi(s.tail).slice(-300);
+      // stuck guard: repeatedly re-confirming the *same* prompt content in quick
+      // succession means Enter isn't dismissing it (e.g. it wants typed input) — stop.
+      if(sig!==s.autoSig||now-s.lastAutoTs>8000||s.lastUserTs>s.lastAutoTs) s.autoRun=0;
+      s.autoSig=sig;
+      if(++s.autoRun>5){ setAutoConfirm(s,false); toast(t('autoStuck')); return; }
+      s.lastAutoTs=now;
+      byline.input(s.id,'\r');
+      // verify + retry (level-triggered): don't wait for a fresh waiting→waiting
+      // transition to re-fire us. Back-to-back prompts — or a coalesced hook update
+      // (main dedupes on the latest word, so a think→confirm pair between two polls
+      // never reaches us) — can leave the session in 'waiting' without setState ever
+      // calling scheduleAuto again, which is how the last of several confirmations got
+      // stranded. So re-arm ourselves: if Enter cleared the prompt the state has moved
+      // off 'waiting' by the next tick and the guard above returns; if a new/identical
+      // prompt is still up we try again, bounded by the stuck guard (new content resets
+      // the counter, unchanged content counts toward the cap).
+      scheduleAuto(s);
+    },600);   // let the dialog finish rendering before answering it
+  }
+  function setAutoConfirm(s,on){
+    s.autoConfirm=on;
+    s.tabEl.classList.toggle('auto',on); s.rowEl.classList.toggle('auto',on);
+    if(on) scheduleAuto(s); else { clearTimeout(s.autoT); s.autoRun=0; s.autoSig=''; }
+  }
+  function toggleAutoConfirm(s){ if(!s) return; setAutoConfirm(s,!s.autoConfirm); toast(t(s.autoConfirm?'autoOn':'autoOff')); }
   // heuristic setter: yields to authoritative hook status when a session is hook-driven
   function hsetState(id,st){ const s=sessions.get(id); if(s&&s.hookDriven) return; setState(id,st); }
   function setName(id,name){
@@ -476,6 +520,8 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   /* ---------- sessions ---------- */
   function newSession(opts){
     opts=opts||{};
+    // open-in-same-dir: inherit the currently-active tab's cwd (from its OSC 7 report)
+    const srcCwd = (sameDir && activeId && sessions.get(activeId)) ? (sessions.get(activeId).cwd||'') : '';
     const id=newId();
     const box=el('div','session'); box.dataset.sid=id; terminalsEl.appendChild(box);
     const term=new Terminal({fontFamily:"'SF Mono','JetBrains Mono',ui-monospace,'Menlo',monospace",fontSize,lineHeight:1.32,
@@ -499,7 +545,8 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     }catch(_){ search=null; } }
     const s={id,term,fit,search,box,state:'idle',cmdActive:false,turnStarted:false,turnBytes:0,burst:0,
       lastByteTs:0,lastUserTs:0,tail:'',settle:null,base:'zsh',name:(opts.title||'zsh'),custom:false,hookDriven:false,
-      agentProg:null,lastAgentProg:null,pendingAgent:null,cwd:''};
+      agentProg:null,lastAgentProg:null,pendingAgent:null,cwd:'',
+      autoConfirm:false,autoT:null,autoRun:0,lastAutoTs:0,autoSig:''};
     sessions.set(id,s);
     buildTab(s); buildRow(s);
     try{
@@ -525,9 +572,9 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     });
     term.attachCustomKeyEventHandler(e=>handleKey(e,id,term));
     activate(id);
-    requestAnimationFrame(()=>{ try{fit.fit();}catch(_){} byline.start(id,term.cols,term.rows); term.focus(); });
+    requestAnimationFrame(()=>{ try{fit.fit();}catch(_){} byline.start(id,term.cols,term.rows,srcCwd); term.focus(); });
     setTimeout(()=>{ try{fit.fit();}catch(_){} byline.resize(id,term.cols,term.rows); },120);
-    if(opts.cmd){ setTimeout(()=>byline.input(id,opts.cmd+'\n'),700); }
+    if(opts.cmd){ setTimeout(()=>byline.input(id,opts.cmd+'\n'),700); if(isYolo(opts.cmd)) setAutoConfirm(s,true); }
     updateBadge();
     return id;
   }
@@ -541,7 +588,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   function closeSession(id){
     const s=sessions.get(id); if(!s) return;
     const ord=tabOrderIds(), idx=ord.indexOf(id);   // capture visual order before removal
-    clearTimeout(s.settle); byline.kill(id); try{s.term.dispose();}catch(_){}
+    clearTimeout(s.settle); clearTimeout(s.autoT); byline.kill(id); try{s.term.dispose();}catch(_){}
     s.box.remove(); s.tabEl.remove(); s.rowEl.remove(); sessions.delete(id);
     if(activeId===id){
       const nx=[ord[idx+1],ord[idx-1]].find(n=>n&&sessions.has(n));   // Chrome-style: right neighbor, else left
@@ -705,7 +752,10 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   const DEFAULT_QC=[
     {label:'Claude',cmd:'claude',accel:'Cmd+N'},
     {label:'Codex',cmd:'codex',accel:'Cmd+M'},   // 会话 menu precedes 窗口, so this wins over role:minimize
-    {label:'Cursor',cmd:'cursor-agent',accel:''},
+    // YOLO sessions: launch with a permission-bypass flag. Marked yolo:true so they
+    // auto-enable auto-confirm and can be gated out of the right-click menu (see yoloItems).
+    {label:'Claude Yolo',cmd:'claude --dangerously-skip-permissions',accel:'Cmd+O',yolo:true},
+    {label:'Codex Yolo',cmd:'codex --dangerously-bypass-approvals-and-sandbox',accel:'Cmd+P',yolo:true},
   ];
   const SC_KEY='byline.sesscmd.v1';
   // sidebar right-click quick commands: sent verbatim into the session (agent prompts or
@@ -735,6 +785,23 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   let quick = Array.isArray(loadJSON(QC_KEY)) ? loadJSON(QC_KEY) : DEFAULT_QC.map(x=>({...x}));
   let sessCmds = Array.isArray(loadJSON(SC_KEY)) ? loadJSON(SC_KEY) : defaultSC();
   let actionAccels = (loadJSON(ACT_KEY) && typeof loadJSON(ACT_KEY)==='object') ? loadJSON(ACT_KEY) : {};
+  // YOLO sessions are detected by the permission-bypass flag in the command (covers the
+  // built-in defaults and any user-added command alike). Such a session auto-enables
+  // auto-confirm as its sole helper — there is no manual auto-confirm toggle anymore.
+  // yoloCtx gates whether YOLO entries appear in the right-click menu (they are always in
+  // the 会话 default config); the checkbox in Settings flips it. Default: shown.
+  const YOLO_CTX_KEY='byline.yoloCtx.v1';
+  const YOLO_FLAGS=['--dangerously-skip-permissions','--dangerously-bypass-approvals-and-sandbox','--permission-mode bypassPermissions','--yolo'];
+  const isYolo=cmd=>!!cmd && YOLO_FLAGS.some(f=>cmd.includes(f));
+  let yoloCtx = (typeof loadJSON(YOLO_CTX_KEY)==='boolean') ? loadJSON(YOLO_CTX_KEY) : true;
+  // Open-in-same-dir: a new session inherits the current tab's directory. Default on.
+  const SAMEDIR_KEY='byline.sameDir.v1';
+  let sameDir = (typeof loadJSON(SAMEDIR_KEY)==='boolean') ? loadJSON(SAMEDIR_KEY) : true;
+  function yoloItems(){
+    if(!yoloCtx) return [];
+    return quick.filter(q=>q && q.cmd && (q.yolo || isYolo(q.cmd)))
+                .map(q=>({label:q.label||q.cmd, run:()=>newSession({cmd:q.cmd,title:q.label||q.cmd})}));
+  }
   function actionAccel(id){ if(Object.prototype.hasOwnProperty.call(actionAccels,id)) return actionAccels[id]; const d=ACTION_DEFS.find(a=>a.id===id); return d?d.def:''; }
   function menuPayload(){ return { quick,
     actions: ACTION_DEFS.map(a=>({id:a.id,label:t(a.key),accel:actionAccel(a.id)})),
@@ -822,7 +889,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       sel.innerHTML=BYLINE_I18N.locales.map(([c,n])=>'<option value="'+c+'">'+n+'</option>').join('');
     sel.value=lang;
   }
-  function renderSettings(){ renderLang(); renderQC(); renderSC(); renderActions(); }
+  function renderSettings(){ renderLang(); renderQC(); renderSC(); renderActions(); const yc=$('#yoloCtxChk'); if(yc) yc.checked=yoloCtx; const sd=$('#sameDirChk'); if(sd) sd.checked=sameDir; }
   $('#langSel').addEventListener('change',e=>setLang(e.target.value));
   function applyI18n(){
     document.documentElement.lang=lang;
@@ -844,6 +911,8 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   function closeSettings(){ if(recording) return; setScrim.classList.remove('open'); const s=sessions.get(activeId); s&&s.term.focus(); }
   $('#qcAdd').addEventListener('click',()=>{ quick.push({label:'',cmd:'',accel:''}); persistAll(); renderSettings(); const inputs=$('#qcList').querySelectorAll('.qc-label'); const last=inputs[inputs.length-1]; if(last) last.focus(); });
   $('#scAdd').addEventListener('click',()=>{ sessCmds.push({label:'',cmd:''}); persistAll(); renderSettings(); const inputs=$('#scList').querySelectorAll('.qc-label'); const last=inputs[inputs.length-1]; if(last) last.focus(); });
+  $('#yoloCtxChk').addEventListener('change',e=>{ yoloCtx=e.target.checked; localStorage.setItem(YOLO_CTX_KEY, JSON.stringify(yoloCtx)); });
+  $('#sameDirChk').addEventListener('change',e=>{ sameDir=e.target.checked; localStorage.setItem(SAMEDIR_KEY, JSON.stringify(sameDir)); });
   $('#setClose').addEventListener('click',closeSettings);
   setScrim.addEventListener('click',e=>{ if(e.target===setScrim) closeSettings(); });
 
@@ -989,7 +1058,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     for(const it of defs){
       if(it.sep){ tabMenu.appendChild(el('div','sep')); continue; }
       const off=it.dim?it.dim(s):false;
-      const mi=el('div','mi'+(it.danger?' danger':'')+(off?' disabled':''), it.key?t(it.key):it.label);
+      const mi=el('div','mi'+(it.danger?' danger':'')+(off?' disabled':''), it.labelOf?it.labelOf(s):(it.key?t(it.key):it.label));
       if(!off) mi.addEventListener('click',()=>{ closeTabMenu(); it.run(s); });
       tabMenu.appendChild(mi);
     }
@@ -1038,9 +1107,11 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   function sendToSession(id,text){ byline.input(id,text+'\r'); }   // like typing it + Enter; no tab switch needed
   function sessMenuDefs(){
     const defs=[];
-    for(const c of sessCmds){ if(c&&c.cmd) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)}); }
-    if(defs.length) defs.push({sep:true});
-    for(const h of handoffItems()) defs.push(h);
+    const sc=sessCmds.filter(c=>c&&c.cmd);
+    for(const c of sc) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)});   // session quick commands lead
+    if(sc.length) defs.push({sep:true});
+    for(const h of handoffItems()) defs.push(h);   // handoff + YOLO sit just above "edit quick commands"
+    const yi=yoloItems(); if(yi.length){ defs.push({sep:true}); yi.forEach(it=>defs.push(it)); }   // YOLO below handoff, split by a separator (gated by yoloCtx)
     defs.push({sep:true});
     defs.push({key:'editQuickCmds', run:()=>openSettings()});
     defs.push({sep:true});
@@ -1064,9 +1135,11 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       }); }},
       {sep:true},
     ];
-    for(const h of handoffItems()) defs.push(h);
-    defs.push({sep:true});
-    for(const c of sessCmds){ if(c&&c.cmd) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)}); }
+    const sc=sessCmds.filter(c=>c&&c.cmd);
+    for(const c of sc) defs.push({label:c.label||c.cmd, run:s=>sendToSession(s.id,c.cmd)});   // session quick commands lead
+    if(sc.length) defs.push({sep:true});
+    for(const h of handoffItems()) defs.push(h);   // handoff + YOLO sit just above "edit quick commands"
+    const yi=yoloItems(); if(yi.length){ defs.push({sep:true}); yi.forEach(it=>defs.push(it)); }   // YOLO below handoff, split by a separator (gated by yoloCtx)
     defs.push({sep:true});
     defs.push({key:'editQuickCmds', run:()=>openSettings()});
     defs.push({sep:true});

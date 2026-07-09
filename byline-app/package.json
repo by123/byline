@@ -1,7 +1,7 @@
 {
   "name": "byline",
   "productName": "Byline",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "A fresh terminal for macOS (xterm.js + node-pty)",
   "main": "main.js",
   "scripts": {

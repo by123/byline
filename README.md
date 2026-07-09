@@ -19,7 +19,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.7.1` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.8.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 ---
 
@@ -110,15 +110,38 @@ language.
   your default browser), OSC 52 lets `tmux`/`nvim`/`ssh` copy to your clipboard
 - **Search** (`⌘F`), Unicode 11 width handling, 8000 lines of scrollback, light/dark themes
 
+## YOLO mode: run without the confirmation prompts
+
+Some work you just want to let rip. Byline ships two extra quick-launch commands for it —
+**Claude Yolo** (`⌘O`) and **Codex Yolo** (`⌘P`) — that start the agent with its permission
+gate dropped (`claude --dangerously-skip-permissions`,
+`codex --dangerously-bypass-approvals-and-sandbox`).
+
+A YOLO session is meant to run end to end without stopping, so Byline drops its
+auto-confirm helper into it automatically: on any prompt the CLI still shows, Enter is
+pressed for you. Any command you add yourself that carries a bypass flag (`--yolo`,
+`--permission-mode bypassPermissions`, …) is recognized as YOLO the same way.
+
+Both launchers also live in the right-click menu — on a sidebar session row and in the
+terminal — so you can start one in the current directory without touching the keyboard.
+A checkbox in Preferences (**Show YOLO sessions in the right-click menu**) hides them if
+you'd rather keep the menu lean.
+
+> **Heads up:** a bypass flag lets the agent run commands and edit files with no approval.
+> Use YOLO sessions only where you're comfortable with that.
+
 ## Working with many sessions
 
 - **Quick-launch commands** — configurable label + command + shortcut (defaults:
-  `⌘N` Claude, `⌘M` Codex); they appear in the app menu and the command palette
+  `⌘N` Claude, `⌘M` Codex, plus `⌘O` / `⌘P` for their YOLO variants); they appear in the
+  app menu and the command palette
+- **Open in the same directory** — new sessions inherit the current tab's working
+  directory by default, so a new tab lands where you're already working (toggle in Preferences)
 - **Command palette** (`⌘K`) — every action and quick-launch, fuzzy-filtered
 - **Per-session quick prompts** — right-click a sidebar row to send a saved prompt
   ("continue", "commit my changes", …) straight into that session, without switching tabs
-- **Right-click menu in the terminal** — copy/paste plus the same quick prompts and
-  handoff actions, right where you're working
+- **Right-click menu in the terminal** — copy/paste plus the same quick prompts, handoff
+  actions, and YOLO launchers, right where you're working
 - **Chrome-style tabs** — drag to reorder, double-click to rename, right-click for
   close-others / close-right
 - **Configurable shortcuts** — every action and quick command is rebindable in
@@ -131,8 +154,9 @@ language.
 | `⌘T` | New tab | `⌘B` | Toggle sidebar |
 | `⌘W` | Close tab | `⌘K` | Command palette |
 | `⌘N` / `⌘M` | New Claude / Codex | `⌘F` | Search scrollback |
-| `⌘1…9` | Switch tab (visual order) | `⌘+ / ⌘- / ⌘0` | Font size |
-| `⌘R` | Rename tab | `⌘,` | Preferences |
+| `⌘O` / `⌘P` | New Claude / Codex (YOLO) | `⌘1…9` | Switch tab (visual order) |
+| `⌘+ / ⌘- / ⌘0` | Font size | `⌘R` | Rename tab |
+| `⌘,` | Preferences | | |
 
 Everything else goes straight to the shell.
 
