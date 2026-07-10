@@ -24,3 +24,4 @@ npm-debug.log*
 # Local tooling state
 .lynx-memory/
 .claude/
+CLAUDE.md
