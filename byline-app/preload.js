@@ -24,4 +24,6 @@ contextBridge.exposeInMainWorld('byline', {
   suspendMenu: ()      => ipcRenderer.send('menu:suspend'),
   onMenuAction: (cb)   => ipcRenderer.on('menu:action', (_e, d) => cb(d)),
   onHookState:  (cb)   => ipcRenderer.on('hook:state', (_e, d) => cb(d)),
+  // renderer -> main log bridge: everything lands in the one byline.log file
+  log: (level, event, data) => ipcRenderer.send('log:write', { level, event, data }),
 });

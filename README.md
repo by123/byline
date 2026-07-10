@@ -19,7 +19,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.8.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.8.1` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 ---
 
@@ -46,10 +46,10 @@ The sidebar shows a per-session status line and a running tally
 
 Three layers, most-authoritative wins, degrading gracefully:
 
-1. **Agent hooks (authoritative)** — agents that support lifecycle hooks (e.g. Claude
-   Code) report their state through a tiny file-based protocol: write one word
+1. **Agent hooks (authoritative)** — agents that support lifecycle hooks (Claude Code
+   and Codex) report their state through a tiny file-based protocol: write one word
    (`think` / `confirm` / `done` / …) to `/tmp/byline_sessions/$BYLINE_SID`. Exact,
-   instant, per-tab. The bundled hook and a one-command Claude Code installer live in
+   instant, per-tab. The bundled hook and a one-command installer for both live in
    [`hooks/`](hooks/) — see [hooks/README.md](hooks/README.md) for the full protocol.
 2. **Shell integration (exact command lifecycle)** — Byline loads via `ZDOTDIR`, sources
    your real z-files, then adds OSC 133 markers: `preexec` = a command started, `precmd`
@@ -63,16 +63,20 @@ Three layers, most-authoritative wins, degrading gracefully:
 Sessions with hook-driven status ignore the heuristics entirely; when the agent process
 exits, control hands back to the shell-integration layer automatically.
 
-### Enable authoritative status for Claude Code
+### Enable authoritative status for Claude Code & Codex
 
 ```bash
 cd hooks
 ./install.sh     # registers the byline-status hook in ~/.claude/settings.json
+                 # and ~/.codex/hooks.json (a config that isn't present is skipped)
 ```
 
 The hook is a no-op outside Byline, adds ~no latency (async, dependency-free POSIX sh),
-and `./install.sh --uninstall` removes it cleanly. Any other agent that can run a command
-on lifecycle events can use the same script — the protocol is agent-agnostic.
+and `./install.sh --uninstall` removes it cleanly. The same hook payload also binds each
+**agent handoff** to the exact tab you clicked, even when two tabs share one project
+directory. Codex gates new hooks behind a one-time review — on the next `codex` launch,
+choose **"Trust all and continue"**. Any other agent that can run a command on lifecycle
+events can use the same script — the protocol is agent-agnostic.
 
 ## Agent handoff: move a session between agents, context included
 
@@ -205,7 +209,7 @@ byline-app/            The Electron app
 
 hooks/                 The status protocol + agent hooks (see hooks/README.md)
 ├── byline-status      Dependency-free POSIX sh hook: one word -> one status file
-└── install.sh         One-command install/uninstall for Claude Code
+└── install.sh         One-command install/uninstall for Claude Code + Codex
 
 byline-terminal/       Early single-file HTML design prototype (reference only)
 ```

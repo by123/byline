@@ -47,7 +47,7 @@ body{font-family:var(--font-ui);color:var(--text);background:var(--win);-webkit-
 .dot.s-waiting{background:var(--tl-yellow);}
 .dot.s-done{background:var(--tl-green);}
 .dot.s-thinking{animation:rygbreathe 4.2s ease-in-out infinite;}
-/* 思考中: red/yellow/green cycling, each breathing - mirrors the AI-Light traffic light */
+/* 思考中: red/yellow/green cycling, each breathing - a traffic-light status cue */
 @keyframes rygbreathe{
   0%{background:var(--tl-green);opacity:1;} 16.6%{background:var(--tl-green);opacity:.28;}
   33.3%{background:var(--tl-yellow);opacity:1;} 50%{background:var(--tl-yellow);opacity:.28;}
@@ -323,6 +323,15 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   const stripAnsi=s=>s.replace(ANSI,'');
   const WAIT_RE=/(\(y\/n\)|\[y\/n\]|\[y\/N\]|\[Y\/n\]|\by\/n\b|yes\/no|do you want|would you like|are you sure|proceed\?|continue\?|press (enter|return|any key)|\bconfirm\b|\bapprove\b|permission to|allow this|overwrite\?|❯|input required)/i;
 
+  /* ---------- logging: forward every renderer operation to main's byline.log ---------- */
+  // Byline is an early build; we log operations (not terminal I/O — no keystrokes/output) so
+  // problems can be investigated after the fact. See preload's `log` + main's `log:write`.
+  const L =(ev,data)=>{ try{ byline.log&&byline.log('info', ev,data); }catch(_){} };
+  const LW=(ev,data)=>{ try{ byline.log&&byline.log('warn', ev,data); }catch(_){} };
+  const LE=(ev,data)=>{ try{ byline.log&&byline.log('error',ev,data); }catch(_){} };
+  addEventListener('error',e=>LE('window-error',{msg:e.message,src:e.filename,line:e.lineno,col:e.colno,stack:e.error&&e.error.stack}));
+  addEventListener('unhandledrejection',e=>LE('unhandled-rejection',{reason:(e.reason&&e.reason.stack)||String(e.reason)}));
+
   /* ---------- i18n: 23 languages (renderer/i18n.js), default English ---------- */
   const LANG_KEY='byline.lang.v1';
   let lang=localStorage.getItem(LANG_KEY)||'en';
@@ -454,6 +463,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   /* ---------- status state machine ---------- */
   function setState(id,st){
     const s=sessions.get(id); if(!s||s.state===st) return;
+    L('state',{id,from:s.state,to:st,hookDriven:s.hookDriven,agent:s.agentProg||undefined});
     s.state=st; applyState(s); updateBadge();
     if(st==='waiting') scheduleAuto(s); else clearTimeout(s.autoT);
   }
@@ -470,8 +480,9 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       // succession means Enter isn't dismissing it (e.g. it wants typed input) — stop.
       if(sig!==s.autoSig||now-s.lastAutoTs>8000||s.lastUserTs>s.lastAutoTs) s.autoRun=0;
       s.autoSig=sig;
-      if(++s.autoRun>5){ setAutoConfirm(s,false); toast(t('autoStuck')); return; }
+      if(++s.autoRun>5){ LW('auto-confirm-stuck',{id:s.id,runs:s.autoRun}); setAutoConfirm(s,false); toast(t('autoStuck')); return; }
       s.lastAutoTs=now;
+      L('auto-confirm-enter',{id:s.id,run:s.autoRun});   // auto-pressing Enter on a 待确认 prompt
       byline.input(s.id,'\r');
       // verify + retry (level-triggered): don't wait for a fresh waiting→waiting
       // transition to re-fire us. Back-to-back prompts — or a coalesced hook update
@@ -486,6 +497,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     },600);   // let the dialog finish rendering before answering it
   }
   function setAutoConfirm(s,on){
+    if(s.autoConfirm!==on) L('auto-confirm',{id:s.id,on});
     s.autoConfirm=on;
     s.tabEl.classList.toggle('auto',on); s.rowEl.classList.toggle('auto',on);
     if(on) scheduleAuto(s); else { clearTimeout(s.autoT); s.autoRun=0; s.autoSig=''; }
@@ -513,8 +525,8 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     const k=payload[0];
     // 133 only fires at the real zsh prompt, so C/D mean the hook's program (claude/codex)
     // isn't running: hand status authority back to the heuristics until hooks re-assert it.
-    if(k==='C'){ s.hookDriven=false; s.cmdActive=true; s.agentProg=null; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
-    else if(k==='D'){ s.hookDriven=false; s.cmdActive=false; if(s.agentProg) s.lastAgentProg=s.agentProg; s.agentProg=null; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
+    if(k==='C'){ L('cmd-start',{id}); s.hookDriven=false; s.cmdActive=true; s.agentProg=null; s.tail=''; s.burst=0; s.turnStarted=false; s.turnBytes=0; s.lastByteTs=Date.now(); hsetState(id,'thinking'); scheduleSettle(id); }
+    else if(k==='D'){ L('cmd-end',{id}); s.hookDriven=false; s.cmdActive=false; if(s.agentProg) s.lastAgentProg=s.agentProg; s.agentProg=null; clearTimeout(s.settle); s.turnStarted=false; setName(id,s.base); hsetState(id,'idle'); }
   }
 
   /* ---------- sessions ---------- */
@@ -548,6 +560,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       agentProg:null,lastAgentProg:null,pendingAgent:null,cwd:'',
       autoConfirm:false,autoT:null,autoRun:0,lastAutoTs:0,autoSig:''};
     sessions.set(id,s);
+    L('session-new',{id,title:s.name,cmd:opts.cmd||undefined,cwd:srcCwd||undefined,yolo:opts.cmd?isYolo(opts.cmd):undefined});
     buildTab(s); buildRow(s);
     try{
       term.parser.registerOscHandler(133,d=>{ onOsc133(id,d); return true; });
@@ -555,10 +568,12 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
         const cmd=String(d), a=agentOf(cmd);
         // a handoff tab runs `sh …/handoffs/…/run.sh`, which execs the target agent:
         // credit that tab to the agent it was created for, so chained handoffs work
+        const prev=s.agentProg;
         if(a) s.agentProg=a;
         else if(s.pendingAgent && cmd.includes('/handoffs/')) s.agentProg=s.pendingAgent;
         else if(/^\s*(fg\b|%\S)/.test(cmd) && s.lastAgentProg) s.agentProg=s.lastAgentProg;  // Ctrl+Z suspend -> fg resume
         else s.agentProg=null;
+        if(s.agentProg!==prev) L('agent-detect',{id,agent:s.agentProg||'none'});   // which CLI this tab is running
         const f=s.agentProg?AGENTS[s.agentProg]:friendly(cmd);
         if(f) setName(id,f);
         return true;
@@ -580,13 +595,14 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   }
   function activate(id){
     if(!sessions.has(id)) return;
-    if(id!==activeId) closeSearch();
+    if(id!==activeId){ closeSearch(); L('activate',{id}); }
     activeId=id; applyActive(); updateBadge();
     const s=sessions.get(id);
     requestAnimationFrame(()=>{ try{s.fit.fit();}catch(_){} byline.resize(id,s.term.cols,s.term.rows); s.term.focus(); });
   }
   function closeSession(id){
     const s=sessions.get(id); if(!s) return;
+    L('session-close',{id,name:s.name});
     const ord=tabOrderIds(), idx=ord.indexOf(id);   // capture visual order before removal
     clearTimeout(s.settle); clearTimeout(s.autoT); byline.kill(id); try{s.term.dispose();}catch(_){}
     s.box.remove(); s.tabEl.remove(); s.rowEl.remove(); sessions.delete(id);
@@ -614,6 +630,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   const quotePath=p=>/[^A-Za-z0-9_\-./~+=:,@]/.test(p)?("'"+p.replace(/'/g,"'\\''")+"'"):p;   // zsh-safe
   function pastePaths(sid,paths){
     const s=sessions.get(sid)||sessions.get(activeId); if(!s||!paths.length) return;
+    L('paste-paths',{id:s.id,count:paths.length});   // paths omitted (may be sensitive)
     s.term.paste(paths.map(quotePath).join(' ')+' ');   // term.paste -> bracketed paste + normal input path
   }
   function filePathsFromDT(dt){
@@ -664,10 +681,10 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 
   let rzT; addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },70); });
 
-  function setFont(px){ fontSize=Math.max(9,Math.min(24,px)); for(const s of sessions.values()){ s.term.options.fontSize=fontSize; try{s.fit.fit();}catch(_){} } const a=sessions.get(activeId); if(a) byline.resize(activeId,a.term.cols,a.term.rows); }
+  function setFont(px){ const nv=Math.max(9,Math.min(24,px)); if(nv!==fontSize) L('font-size',{size:nv}); fontSize=nv; for(const s of sessions.values()){ s.term.options.fontSize=fontSize; try{s.fit.fit();}catch(_){} } const a=sessions.get(activeId); if(a) byline.resize(activeId,a.term.cols,a.term.rows); }
   function applyTheme(t){ theme=t; document.documentElement.dataset.theme=t; for(const s of sessions.values()) s.term.options.theme=THEMES[t]; }
-  function toggleTheme(){ applyTheme(theme==='dark'?'light':'dark'); }
-  function toggleSidebar(force){ const sb=$('#sidebar'); const open=force!=null?force:!sb.classList.contains('open'); sb.classList.toggle('open',open); $('#sidebarBtn').classList.toggle('on',open); setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },60); }
+  function toggleTheme(){ const nt=theme==='dark'?'light':'dark'; L('theme',{theme:nt}); applyTheme(nt); }
+  function toggleSidebar(force){ const sb=$('#sidebar'); const open=force!=null?force:!sb.classList.contains('open'); L('sidebar',{open}); sb.classList.toggle('open',open); $('#sidebarBtn').classList.toggle('on',open); setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },60); }
 
   function handleKey(e,id,term){
     if(e.type!=='keydown') return true;
@@ -903,6 +920,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   }
   function setLang(l){
     if(!BYLINE_I18N.strings[l]) l='en';
+    L('lang',{lang:l});
     lang=l; localStorage.setItem(LANG_KEY,l);
     if(localStorage.getItem(SC_KEY)==null) sessCmds=defaultSC();   // untouched defaults follow the UI language
     applyI18n();
@@ -926,11 +944,11 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   });
   pushMenu();
 
-  /* ---------- authoritative status from ai-light hooks (per session) ---------- */
+  /* ---------- authoritative status from the byline-status hook (per session) ---------- */
   const HOOK_MAP={start:'idle', off:'idle', think:'thinking', confirm:'waiting', done:'done'};
   byline.onHookState && byline.onHookState(({id,state})=>{
-    const s=sessions.get(id); if(!s) return;
-    const mapped=HOOK_MAP[state]; if(!mapped) return;
+    const s=sessions.get(id); if(!s){ LW('hook-state-orphan',{id,state}); return; }
+    const mapped=HOOK_MAP[state]; if(!mapped){ LW('hook-state-unknown',{id,state}); return; }
     s.hookDriven=true;         // this session is now driven by real Claude/Codex events
     setState(id,mapped);
   });
@@ -1090,21 +1108,24 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   }
   async function doHandoff(s,dst){
     const src=s.agentProg;
-    if(!src||src===dst) return;
-    const res=await byline.handoffPrepare({srcAgent:src,dstAgent:dst,cwd:s.cwd||'',texts:{
+    if(!src||src===dst){ LW('handoff-skip',{id:s.id,src,dst}); return; }
+    L('handoff-start',{id:s.id,src,dst,cwd:s.cwd||undefined});
+    const res=await byline.handoffPrepare({srcAgent:src,dstAgent:dst,sid:s.id,cwd:s.cwd||'',texts:{
       summaryPrompt:t('hSummaryPrompt'), intro:t('hIntroPrompt'),
       generating:t('hGenerating'), warnFail:t('hWarnFail'), archived:t('hArchived')}});
     if(!res||!res.ok){
+      LE('handoff-error',{id:s.id,src,dst,err:(res&&res.err)||'?'});
       toast(res&&res.err==='no-session'?t('hErrNoSession'):t('hErrFail').replace('{err}',(res&&res.err)||'?'));
       return;
     }
+    L('handoff-ok',{src,dst,dir:res.dir});
     const nid=newSession({cmd:'sh '+quotePath(res.script), title:(dst==='codex'?'Codex':'Claude')+' ⇠ '+s.name});
     const ns=sessions.get(nid);
     if(ns){ ns.custom=true; ns.pendingAgent=dst; ns.cwd=s.cwd; }
   }
 
   /* ---------- sidebar row right-click: quick commands sent straight into that session ---------- */
-  function sendToSession(id,text){ byline.input(id,text+'\r'); }   // like typing it + Enter; no tab switch needed
+  function sendToSession(id,text){ L('session-cmd',{id,cmd:text}); byline.input(id,text+'\r'); }   // like typing it + Enter; no tab switch needed
   function sessMenuDefs(){
     const defs=[];
     const sc=sessCmds.filter(c=>c&&c.cmd);
@@ -1169,6 +1190,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   });
   document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(tabMenu.classList.contains('open')) closeTabMenu(); else if(scrim.classList.contains('open')) closePalette(); else if(setScrim.classList.contains('open')) closeSettings(); else if(renameScrim.classList.contains('open')) closeRename(); } });
 
+  L('renderer-boot',{lang,theme,quick:quick.length});
   applyI18n();
   newSession();
 })();

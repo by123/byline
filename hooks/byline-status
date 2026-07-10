@@ -17,5 +17,20 @@ mkdir -p "$DIR" 2>/dev/null || exit 0
 printf '%s' "$1" > "$DIR/$BYLINE_SID.tmp" 2>/dev/null || exit 0
 mv -f "$DIR/$BYLINE_SID.tmp" "$DIR/$BYLINE_SID" 2>/dev/null
 
-[ -t 0 ] || cat > /dev/null 2>&1    # drain the hook's stdin payload (e.g. Claude Code event JSON)
+# Record which agent session THIS tab is driving, so a handoff hands over this tab's session
+# rather than merely the newest session in the project dir (two tabs in one cwd would otherwise
+# collide). Claude Code and Codex both pass a JSON payload on stdin carrying the live session's
+# id and transcript file (for codex, the rollout file); capture them and publish a per-tab map
+# at <sid>.session. Reading all of stdin also drains the payload (never leave the agent's write
+# end with a broken pipe). Register this same hook in ~/.codex/hooks.json to cover codex too.
+if [ ! -t 0 ]; then
+  payload=$(cat 2>/dev/null)
+  sid=$(printf '%s' "$payload" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  tpath=$(printf '%s' "$payload" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  # need the transcript file to archive; never clobber a good map with a pathless event
+  if [ -n "$tpath" ]; then
+    printf '%s\n%s\n' "$sid" "$tpath" > "$DIR/$BYLINE_SID.session.tmp" 2>/dev/null \
+      && mv -f "$DIR/$BYLINE_SID.session.tmp" "$DIR/$BYLINE_SID.session" 2>/dev/null
+  fi
+fi
 exit 0

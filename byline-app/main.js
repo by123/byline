@@ -7,15 +7,27 @@ const { fileURLToPath } = require('url');
 const os = require('os');
 const fs = require('fs');
 const pty = require('node-pty');
+const log = require('./logger');
 
 app.setName('Byline');
 
 const HOME = os.homedir();
+
+// Open the log file before anything else so even early failures land on disk. Byline is an
+// early build; every meaningful operation below is logged for after-the-fact investigation.
+log.init();
+log.info('main', 'app-start', {
+  version: app.getVersion(), electron: process.versions.electron,
+  platform: process.platform, arch: process.arch, pid: process.pid, log: log.file(),
+});
+// Last-resort nets: a crash in the main process should be recorded, not vanish.
+process.on('uncaughtException', err => log.error('main', 'uncaughtException', { err: (err && err.stack) || String(err) }));
+process.on('unhandledRejection', reason => log.error('main', 'unhandledRejection', { reason: (reason && reason.stack) || String(reason) }));
 const SHELL_INT = path.join(__dirname, 'shell');   // Byline shell-integration z-files (bundled, read-only)
-// Per-session status files (see hooks/README.md for the contract). Agent hooks write one
-// word (start|think|confirm|done|off) to <dir>/<BYLINE_SID>. Two dirs are watched: Byline's
-// own, plus the legacy ai-light dir so existing ai-light setups keep working unchanged.
-const STATUS_DIRS = ['/tmp/byline_sessions', '/tmp/ai_light_sessions'];
+// Per-session status files (see hooks/README.md for the contract). The byline-status hook
+// writes one word (start|think|confirm|done|off) to <dir>/<BYLINE_SID>. A list (not a single
+// path) only so dev + installed instances can share one status dir.
+const STATUS_DIRS = ['/tmp/byline_sessions'];
 let RT_SHELL = SHELL_INT;                           // writable copy so zsh caches (.zcompdump) never touch the app bundle
 let win = null;
 
@@ -24,9 +36,11 @@ function ensureShellDir() {
     RT_SHELL = path.join(app.getPath('userData'), 'shell');
     fs.mkdirSync(RT_SHELL, { recursive: true });
     for (const f of ['.zshenv', '.zprofile', '.zshrc', '.zlogin']) {
-      try { fs.copyFileSync(path.join(SHELL_INT, f), path.join(RT_SHELL, f)); } catch (_) {}
+      try { fs.copyFileSync(path.join(SHELL_INT, f), path.join(RT_SHELL, f)); }
+      catch (e) { log.warn('main', 'shell-copy-fail', { file: f, err: e }); }
     }
-  } catch (_) { RT_SHELL = SHELL_INT; }
+    log.info('main', 'shell-dir-ready', { dir: RT_SHELL });
+  } catch (e) { RT_SHELL = SHELL_INT; log.warn('main', 'shell-dir-fallback', { dir: RT_SHELL, err: e }); }
 }
 const sessions = new Map();               // id -> {p, buf, bufLen, flushT, unacked, paused}
 
@@ -42,10 +56,14 @@ function flushPty(id, s) {
   const data = s.buf.join(''); s.buf.length = 0; s.bufLen = 0;
   s.unacked += data.length;
   if (win && !win.isDestroyed()) win.webContents.send('pty:data', { id, data });
-  if (!s.paused && s.unacked > HIGH_WATER) { s.paused = true; try { s.p.pause(); } catch (_) {} }
+  if (!s.paused && s.unacked > HIGH_WATER) {
+    s.paused = true;
+    log.info('main', 'pty-pause', { id, unacked: s.unacked });   // renderer fell behind; flow control kicked in
+    try { s.p.pause(); } catch (e) { log.warn('main', 'pty-pause-fail', { id, err: e }); }
+  }
 }
 
-// Read the per-session status files that ai-light's hook writes (keyed by BYLINE_SID) and
+// Read the per-session status files that the byline-status hook writes (keyed by BYLINE_SID) and
 // push each change to the renderer as authoritative status for that tab. We poll + rescan
 // on every fs event because macOS fs.watch reports atomic renames unreliably (it often
 // surfaces the temp filename, not the final one), which would drop updates.
@@ -69,6 +87,7 @@ function pollHookStates() {
   for (const id of Object.keys(newest)) {
     const state = newest[id].state;
     if (_hookStates[id] !== state) {
+      log.info('main', 'hook-state', { id, from: _hookStates[id] || '-', to: state });
       _hookStates[id] = state;
       if (win && !win.isDestroyed()) win.webContents.send('hook:state', { id, state });
     }
@@ -88,12 +107,17 @@ function watchHookStates() {
         try { if (now - fs.statSync(fp).mtimeMs > 86400e3) fs.unlinkSync(fp); } catch (_) {}
       }
     } catch (_) {}
-    try { fs.watch(dir, () => pollHookStates()); } catch (_) {}  // instant on change
+    try { fs.watch(dir, () => pollHookStates()); }               // instant on change
+    catch (e) { log.warn('main', 'hook-watch-fail', { dir, err: e }); }
   }
   setInterval(pollHookStates, 600);                              // robust fallback
+  log.info('main', 'hook-watch-start', { dirs: STATUS_DIRS });
 }
 function unlinkStatus(id) {
-  for (const dir of STATUS_DIRS) { try { fs.unlinkSync(path.join(dir, id)); } catch (_) {} }
+  for (const dir of STATUS_DIRS) {
+    try { fs.unlinkSync(path.join(dir, id)); } catch (_) {}
+    try { fs.unlinkSync(path.join(dir, id + '.session')); } catch (_) {}   // per-tab handoff mapping
+  }
 }
 
 function createWindow() {
@@ -113,52 +137,68 @@ function createWindow() {
   // Terminal output is untrusted (OSC 8 links, agent output): links open in the default
   // browser, never as a child window, and the app page itself can never be navigated away.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) { log.info('main', 'window-open-external', { url }); shell.openExternal(url); }
+    else log.warn('main', 'window-open-denied', { url });
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', e => e.preventDefault());
+  win.webContents.on('will-navigate', e => { log.warn('main', 'navigate-blocked', { url: e.url }); e.preventDefault(); });
   // a reloaded/crashed renderer regenerates its session ids: reap the old PTYs or they leak
-  win.webContents.on('render-process-gone', () => killAll());
-  win.webContents.on('did-start-navigation', e => { if (e.isMainFrame && !e.isSameDocument) killAll(); });
-  win.once('ready-to-show', () => win.show());
-  win.on('closed', () => { killAll(); win = null; });
+  win.webContents.on('render-process-gone', (_e, d) => { log.error('main', 'render-process-gone', { reason: d && d.reason, exitCode: d && d.exitCode }); killAll(); });
+  win.webContents.on('did-start-navigation', e => { if (e.isMainFrame && !e.isSameDocument) { log.warn('main', 'main-frame-navigation', { url: e.url }); killAll(); } });
+  win.once('ready-to-show', () => { log.info('main', 'window-ready'); win.show(); });
+  win.on('closed', () => { log.info('main', 'window-closed'); killAll(); win = null; });
+  log.info('main', 'window-created');
 }
 
 function killAll() {
+  const n = sessions.size;
   for (const [id, s] of sessions) {
     clearTimeout(s.flushT);
-    try { s.p.kill(); } catch (_) {}
+    try { s.p.kill(); } catch (e) { log.warn('main', 'kill-fail', { id, err: e }); }
     unlinkStatus(id);
   }
   sessions.clear();
+  if (n) log.info('main', 'kill-all', { count: n });
 }
 
 ipcMain.on('pty:start', (_e, { id, cols, rows, cwd }) => {
-  if (!validId(id) || sessions.has(id)) return;
+  if (!validId(id) || sessions.has(id)) {
+    log.warn('main', 'pty-start-reject', { id, reason: !validId(id) ? 'bad-id' : 'duplicate' });
+    return;
+  }
   const shellPath = process.env.SHELL || '/bin/zsh';
   let startCwd = HOME;                                   // open-in-same-dir: honor the renderer's requested cwd
-  if (typeof cwd === 'string' && cwd) { try { if (fs.statSync(cwd).isDirectory()) startCwd = cwd; } catch (_) {} }
-  const p = pty.spawn(shellPath, ['-il'], {
-    name: 'xterm-256color',
-    cols: cols || 100, rows: rows || 30,
-    cwd: startCwd,
-    env: {
-      ...process.env,
-      TERM: 'xterm-256color', COLORTERM: 'truecolor',
-      LANG: process.env.LANG || 'en_US.UTF-8',
-      ZDOTDIR: RT_SHELL,                                   // load Byline integration first (writable copy)
-      BYLINE_INT_DIR: RT_SHELL,
-      BYLINE_ZDOTDIR: process.env.ZDOTDIR || HOME,         // then the user's real config
-      BYLINE_SID: id,                                      // per-tab id so ai-light hooks can report per session
-    },
-  });
+  if (typeof cwd === 'string' && cwd) { try { if (fs.statSync(cwd).isDirectory()) startCwd = cwd; } catch (e) { log.warn('main', 'pty-cwd-reject', { id, cwd, err: e }); } }
+  let p;
+  try {
+    p = pty.spawn(shellPath, ['-il'], {
+      name: 'xterm-256color',
+      cols: cols || 100, rows: rows || 30,
+      cwd: startCwd,
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color', COLORTERM: 'truecolor',
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        ZDOTDIR: RT_SHELL,                                   // load Byline integration first (writable copy)
+        BYLINE_INT_DIR: RT_SHELL,
+        BYLINE_ZDOTDIR: process.env.ZDOTDIR || HOME,         // then the user's real config
+        BYLINE_SID: id,                                      // per-tab id so the byline-status hook can report per session
+      },
+    });
+  } catch (e) {
+    log.error('main', 'pty-spawn-fail', { id, shell: shellPath, cwd: startCwd, err: e });
+    if (win && !win.isDestroyed()) win.webContents.send('pty:exit', { id });   // let the renderer clean up the dead tab
+    return;
+  }
+  log.info('main', 'pty-start', { id, shell: shellPath, cwd: startCwd, cols: cols || 100, rows: rows || 30, pid: p.pid });
   const s = { p, buf: [], bufLen: 0, flushT: null, unacked: 0, paused: false };
   p.onData(data => {
     s.buf.push(data); s.bufLen += data.length;
     if (s.bufLen >= 65536) { clearTimeout(s.flushT); s.flushT = null; flushPty(id, s); }
     else if (!s.flushT) s.flushT = setTimeout(() => { s.flushT = null; flushPty(id, s); }, 8);
   });
-  p.onExit(() => {
+  p.onExit(({ exitCode, signal } = {}) => {
+    log.info('main', 'pty-exit', { id, pid: p.pid, exitCode, signal });
     clearTimeout(s.flushT); s.flushT = null;
     flushPty(id, s);                                       // deliver the final output before the exit event
     sessions.delete(id);
@@ -171,7 +211,11 @@ ipcMain.on('pty:start', (_e, { id, cols, rows, cwd }) => {
 ipcMain.on('pty:ack', (_e, { id, n }) => {
   const s = sessions.get(id); if (!s || typeof n !== 'number') return;
   s.unacked = Math.max(0, s.unacked - n);
-  if (s.paused && s.unacked < LOW_WATER) { s.paused = false; try { s.p.resume(); } catch (_) {} }
+  if (s.paused && s.unacked < LOW_WATER) {
+    s.paused = false;
+    log.info('main', 'pty-resume', { id, unacked: s.unacked });
+    try { s.p.resume(); } catch (e) { log.warn('main', 'pty-resume-fail', { id, err: e }); }
+  }
 });
 
 // Double-click title bar: maximize when small, or restore to 2/3 of the screen (centered) when large.
@@ -193,9 +237,12 @@ function zoomWindow() {
   if (large) { if (win.isMaximized()) win.unmaximize(); setTwoThirdsCentered(); }
   else { win.maximize(); }
 }
-ipcMain.on('win:zoom', () => zoomWindow());
+ipcMain.on('win:zoom', () => { log.info('main', 'win-zoom'); zoomWindow(); });
 
-ipcMain.on('shell:open-external', (_e, { url }) => { if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url); });
+ipcMain.on('shell:open-external', (_e, { url }) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) { log.info('main', 'open-external', { url }); shell.openExternal(url); }
+  else log.warn('main', 'open-external-reject', { url });
+});
 
 // Finder's Cmd+C puts file *references* on the pasteboard, not paths, so the renderer can't
 // read them from the DOM paste event alone. Resolve them here: NSFilenamesPboardType is an
@@ -209,15 +256,17 @@ ipcMain.handle('clipboard:files', () => {
       const re = /<string>([\s\S]*?)<\/string>/g;
       let m; while ((m = re.exec(buf.toString('utf8')))) out.push(unesc(m[1]));
     }
-  } catch (_) {}
+  } catch (e) { log.warn('main', 'clipboard-files-plist-fail', { err: e }); }
   if (!out.length) {
-    try { const u = clipboard.read('public.file-url'); if (u) out.push(fileURLToPath(u.trim())); } catch (_) {}
+    try { const u = clipboard.read('public.file-url'); if (u) out.push(fileURLToPath(u.trim())); } catch (e) { log.warn('main', 'clipboard-files-url-fail', { err: e }); }
   }
-  return out.filter(p => { try { return typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p); } catch (_) { return false; } });
+  const files = out.filter(p => { try { return typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p); } catch (_) { return false; } });
+  log.info('main', 'clipboard-files', { count: files.length });   // paths themselves omitted (may be sensitive)
+  return files;
 });
 
-ipcMain.handle('clipboard:text', () => { try { return clipboard.readText(); } catch (_) { return ''; } });
-ipcMain.on('clipboard:write', (_e, { text }) => { try { if (typeof text === 'string') clipboard.writeText(text); } catch (_) {} });
+ipcMain.handle('clipboard:text', () => { try { return clipboard.readText(); } catch (e) { log.warn('main', 'clipboard-text-fail', { err: e }); return ''; } });
+ipcMain.on('clipboard:write', (_e, { text }) => { try { if (typeof text === 'string') { clipboard.writeText(text); log.info('main', 'clipboard-write', { len: text.length }); } } catch (e) { log.warn('main', 'clipboard-write-fail', { err: e }); } });
 
 // --- Agent handoff (claude <-> codex) -------------------------------------------------
 // One click hands a live agent session over to the other CLI: the source session's
@@ -282,19 +331,50 @@ function newestCodexSession(cwd) {
   return null;
 }
 
+// Authoritative per-tab source: the byline-status hook writes /tmp/byline_sessions/<sid>.session
+// = "<session_id>\n<transcript_path>" for the agent session running in that tab. Both Claude and
+// Codex hooks carry the same fields (session_id + transcript_path — for codex the transcript is
+// the rollout file). Preferring this over newest-mtime is what keeps a handoff bound to the tab
+// the user clicked, even when two tabs of the same agent share one project dir. Each read is
+// gated on the transcript living under THAT agent's own store, so a stale map left by a tab's
+// previous agent can never be used for the wrong handoff (we fall back to newest-mtime instead).
+function mappedSession(agent, sid) {
+  if (!validId(sid)) return null;
+  const root = (agent === 'claude'
+    ? path.join(HOME, '.claude', 'projects')
+    : path.join(HOME, '.codex', 'sessions')) + path.sep;
+  for (const dir of STATUS_DIRS) {
+    try {
+      const [id, file] = fs.readFileSync(path.join(dir, sid + '.session'), 'utf8').split('\n');
+      const fileV = (file || '').trim();
+      if (!fileV || !fileV.startsWith(root) || !fs.existsSync(fileV)) continue;
+      let sidV = (id || '').trim();
+      if (!sidV) {                                              // fall back to the id in the filename
+        const base = path.basename(fileV).replace(/\.jsonl$/, '');
+        sidV = agent === 'claude' ? base : base.slice(-36);     // codex: rollout-<ts>-<uuid>.jsonl
+      }
+      if (sidV) return { file: fileV, sid: sidV };
+    } catch (_) {}
+  }
+  return null;
+}
+
 ipcMain.handle('handoff:prepare', (_e, req) => {
   try {
     req = req || {};
     const src = req.srcAgent, dst = req.dstAgent;
-    if (!['claude', 'codex'].includes(src) || !['claude', 'codex'].includes(dst) || src === dst) return { ok: false, err: 'bad-args' };
+    log.info('main', 'handoff-prepare', { src, dst, cwd: req.cwd });
+    if (!['claude', 'codex'].includes(src) || !['claude', 'codex'].includes(dst) || src === dst) { log.warn('main', 'handoff-bad-args', { src, dst }); return { ok: false, err: 'bad-args' }; }
     const cwd = (typeof req.cwd === 'string' && path.isAbsolute(req.cwd)) ? req.cwd : HOME;
     const tx = {};
     for (const k of ['summaryPrompt', 'intro', 'generating', 'warnFail', 'archived']) {
       const v = (req.texts || {})[k];
       tx[k] = typeof v === 'string' ? v.slice(0, 4000) : '';
     }
-    const found = src === 'claude' ? newestClaudeSession(cwd) : newestCodexSession(cwd);
-    if (!found || !found.sid) return { ok: false, err: 'no-session' };
+    const mapped = mappedSession(src, req.sid);
+    const found = mapped || (src === 'claude' ? newestClaudeSession(cwd) : newestCodexSession(cwd));
+    if (!found || !found.sid) { log.warn('main', 'handoff-no-session', { src, cwd, tab: req.sid }); return { ok: false, err: 'no-session' }; }
+    log.info('main', 'handoff-source-found', { src, sid: found.sid, file: found.file, tab: req.sid, via: mapped ? 'tab-map' : 'newest-mtime' });
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const dir = path.join(HOME, '.byline', 'handoffs', stamp + '-' + src + '-to-' + dst);
@@ -325,17 +405,21 @@ ipcMain.handle('handoff:prepare', (_e, req) => {
       'exec ' + dst + ' ' + shq(intro),
       '',
     ].join('\n'), { mode: 0o755 });
+    log.info('main', 'handoff-ready', { src, dst, dir, sid: found.sid });
     return { ok: true, dir, script, archive, summary, sid: found.sid };
   } catch (err) {
+    log.error('main', 'handoff-fail', { src: req && req.srcAgent, dst: req && req.dstAgent, err });
     return { ok: false, err: String((err && err.message) || err) };
   }
 });
 
+// pty:input (keystrokes) and pty:resize are intentionally not logged: keystrokes are
+// high-frequency and could capture secrets; resize fires continuously while dragging.
 ipcMain.on('pty:input',  (_e, { id, data }) => { const s = sessions.get(id); if (s) s.p.write(data); });
-ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const s = sessions.get(id); if (s) { try { s.p.resize(cols, rows); } catch (_) {} } });
+ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const s = sessions.get(id); if (s) { try { s.p.resize(cols, rows); } catch (e) { log.warn('main', 'pty-resize-fail', { id, cols, rows, err: e }); } } });
 ipcMain.on('pty:kill',   (_e, { id }) => {
   const s = sessions.get(id);
-  if (s) { clearTimeout(s.flushT); try { s.p.kill(); } catch (_) {} }
+  if (s) { log.info('main', 'pty-kill', { id, pid: s.p && s.p.pid }); clearTimeout(s.flushT); try { s.p.kill(); } catch (e) { log.warn('main', 'kill-fail', { id, err: e }); } }
   sessions.delete(id);
   if (validId(id)) unlinkStatus(id);
 });
@@ -404,13 +488,21 @@ function buildMenu(payload) {
 ipcMain.on('menu:update', (_e, quick) => buildMenu(quick));
 ipcMain.on('menu:suspend', () => Menu.setApplicationMenu(null));  // free keys while recording a shortcut
 
+// Renderer forwards its own log events here so everything lands in one file (see preload.log).
+ipcMain.on('log:write', (_e, entry) => {
+  entry = entry || {};
+  const level = entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warn' : 'info';
+  log[level]('renderer', String(entry.event || 'event'), entry.data);
+});
+
 app.whenReady().then(() => {
+  log.info('main', 'app-ready');
   ensureShellDir();
   buildMenu({});
-  try { if (app.dock) app.dock.setIcon(path.join(__dirname, 'build', 'icon.png')); } catch (_) {}
+  try { if (app.dock) app.dock.setIcon(path.join(__dirname, 'build', 'icon.png')); } catch (e) { log.warn('main', 'dock-icon-fail', { err: e }); }
   createWindow();
   watchHookStates();
 });
-app.on('window-all-closed', () => { killAll(); if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (!win) createWindow(); });
-app.on('before-quit', () => killAll());
+app.on('window-all-closed', () => { log.info('main', 'window-all-closed'); killAll(); if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { log.info('main', 'app-activate', { hasWindow: !!win }); if (!win) createWindow(); });
+app.on('before-quit', () => { log.info('main', 'app-quit'); killAll(); });
