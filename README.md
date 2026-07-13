@@ -19,7 +19,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.8.1` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.9.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 ---
 
@@ -112,6 +112,11 @@ language.
   shell-quoted full path is inserted (like Terminal.app)
 - **Links & clipboard** — plain-text URLs and OSC 8 hyperlinks are clickable (opening in
   your default browser), OSC 52 lets `tmux`/`nvim`/`ssh` copy to your clipboard
+- **Copy on select & instant translate** — selecting text copies it automatically;
+  right-click → **Translate** pops the result up right where you clicked (Google
+  Translate, usually sub-second; ×, Esc or a click elsewhere dismisses it). The
+  direction has its own Translation section in Preferences — any of the 23 UI
+  languages, default English → Simplified Chinese
 - **Search** (`⌘F`), Unicode 11 width handling, 8000 lines of scrollback, light/dark themes
 
 ## YOLO mode: run without the confirmation prompts
@@ -144,8 +149,8 @@ you'd rather keep the menu lean.
 - **Command palette** (`⌘K`) — every action and quick-launch, fuzzy-filtered
 - **Per-session quick prompts** — right-click a sidebar row to send a saved prompt
   ("continue", "commit my changes", …) straight into that session, without switching tabs
-- **Right-click menu in the terminal** — copy/paste plus the same quick prompts, handoff
-  actions, and YOLO launchers, right where you're working
+- **Right-click menu in the terminal** — copy/paste/translate plus the same quick prompts,
+  handoff actions, and YOLO launchers, right where you're working
 - **Chrome-style tabs** — drag to reorder, double-click to rename, right-click for
   close-others / close-right
 - **Configurable shortcuts** — every action and quick command is rebindable in

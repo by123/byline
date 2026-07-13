@@ -204,6 +204,24 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 .ctxmenu .mi.disabled{color:var(--faint);pointer-events:none;}
 .ctxmenu .sep{height:1px;background:var(--border);margin:5px 8px;}
 
+/* translate result popover: opens at the right-click position; × / Esc / outside click closes */
+.transpop{position:fixed;z-index:65;min-width:200px;max-width:min(460px,80vw);background:var(--surface);
+  border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);display:none;
+  flex-direction:column;-webkit-app-region:no-drag;}
+.transpop.open{display:flex;}
+.tp-head{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-bottom:1px solid var(--border);}
+.tp-langs{font-size:11px;color:var(--muted);flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tp-close{width:20px;height:20px;border:none;border-radius:6px;background:transparent;color:var(--faint);
+  cursor:pointer;display:grid;place-items:center;padding:0;flex:0 0 auto;}
+.tp-close:hover{background:var(--surface-2);color:var(--text);}
+.tp-body{padding:10px 12px;font-size:12.5px;line-height:1.55;max-height:300px;overflow-y:auto;
+  white-space:pre-wrap;overflow-wrap:break-word;user-select:text;cursor:text;}
+.tp-body.busy{color:var(--muted);}
+/* settings: translation direction (source -> target, the 23 UI languages) */
+.trans-row{display:flex;align-items:center;gap:8px;margin:0 0 6px;}
+.trans-row .lang-sel{flex:1 1 0;margin:0;}
+.trans-row .tr-arrow{flex:0 0 auto;color:var(--muted);font-size:13px;}
+
 /* transient notice (e.g. handoff errors) */
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);z-index:70;max-width:70%;
   background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);
@@ -278,6 +296,9 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       <div class="set-body">
         <h3 class="set-sub" data-i18n="secLang">Language</h3>
         <select id="langSel" class="lang-sel"></select>
+        <h3 class="set-sub" data-i18n="secTranslate">Translation</h3>
+        <div class="trans-row"><select id="trSrc" class="lang-sel"></select><span class="tr-arrow">→</span><select id="trDst" class="lang-sel"></select></div>
+        <p class="set-hint" data-i18n="transHint">Direction for “Translate” in the terminal right-click menu.</p>
         <p class="set-hint" data-i18n="settingsHint">Click a button on the right to record a shortcut. Esc cancels, Delete clears.</p>
         <h3 class="set-sub" data-i18n="secQuick">AI sessions</h3>
         <div class="qc-list" id="qcList"></div>
@@ -303,6 +324,13 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   </div>
 
   <div class="ctxmenu" id="tabMenu" role="menu"></div>
+  <div class="transpop" id="transPop" role="dialog" aria-label="Translation">
+    <div class="tp-head">
+      <span class="tp-langs" id="transLangs"></span>
+      <button class="tp-close" id="transClose" aria-label="Close"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="tp-body" id="transBody"></div>
+  </div>
   <div class="toast" id="toast" role="status"></div>
 </div>
 
@@ -580,6 +608,10 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       });
       term.parser.registerOscHandler(7,d=>{ try{ const u=new URL(String(d)); if(u.protocol==='file:'){ const p=decodeURIComponent(u.pathname); if(p) s.cwd=p; } }catch(_){} return true; });
     }catch(_){}
+    // copy-on-select (iTerm-style): a finished selection lands on the clipboard, so 翻译
+    // and pasting elsewhere both see it. Debounced — onSelectionChange fires per drag step.
+    let selT=null;
+    term.onSelectionChange(()=>{ clearTimeout(selT); selT=setTimeout(()=>{ const sel=term.getSelection(); if(sel&&sel.trim()) byline.clipboardWrite(sel); },180); });
     term.onData(d=>{
       byline.input(id,d);
       s.lastUserTs=Date.now();
@@ -784,6 +816,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     {label:t('scReadme'),   cmd:t('scReadmeCmd')},
     {label:t('scClaudeMd'), cmd:t('scClaudeMdCmd')},
     {label:t('scSummary'),  cmd:t('scSummaryCmd')},
+    {label:t('scByline'),   cmd:t('scBylineCmd')},
   ];
   // every built-in palette operation; label = i18n key, shortcut configurable in Settings.
   const ACTION_DEFS=[
@@ -814,6 +847,14 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   // Open-in-same-dir: a new session inherits the current tab's directory. Default on.
   const SAMEDIR_KEY='byline.sameDir.v1';
   let sameDir = (typeof loadJSON(SAMEDIR_KEY)==='boolean') ? loadJSON(SAMEDIR_KEY) : true;
+  // Translate (terminal right-click 翻译): direction picked in Settings from the same 23
+  // languages as the UI (pickers show native names). GOOGLE_CODES maps each locale to the
+  // language code the Google endpoint expects. Default English -> Simplified Chinese.
+  const TR_KEY='byline.translate.v1';
+  const GOOGLE_CODES={en:'en','zh-Hans':'zh-CN','zh-Hant':'zh-TW',ja:'ja',ko:'ko',fr:'fr',de:'de',es:'es','es-419':'es',
+    'pt-BR':'pt',it:'it',ru:'ru',ar:'ar',tr:'tr',th:'th',vi:'vi',id:'id',nl:'nl',pl:'pl',sv:'sv',da:'da',nb:'no',fi:'fi'};
+  const trCfg=(()=>{ const v=loadJSON(TR_KEY)||{}; return { src:GOOGLE_CODES[v.src]?v.src:'en', dst:GOOGLE_CODES[v.dst]?v.dst:'zh-Hans' }; })();
+  function saveTrCfg(){ localStorage.setItem(TR_KEY, JSON.stringify(trCfg)); L('translate-cfg',{src:trCfg.src,dst:trCfg.dst}); }
   function yoloItems(){
     if(!yoloCtx) return [];
     return quick.filter(q=>q && q.cmd && (q.yolo || isYolo(q.cmd)))
@@ -906,8 +947,17 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       sel.innerHTML=BYLINE_I18N.locales.map(([c,n])=>'<option value="'+c+'">'+n+'</option>').join('');
     sel.value=lang;
   }
-  function renderSettings(){ renderLang(); renderQC(); renderSC(); renderActions(); const yc=$('#yoloCtxChk'); if(yc) yc.checked=yoloCtx; const sd=$('#sameDirChk'); if(sd) sd.checked=sameDir; }
+  function renderTranslate(){
+    for(const [sel,cur] of [[$('#trSrc'),trCfg.src],[$('#trDst'),trCfg.dst]]){
+      if(sel.options.length!==BYLINE_I18N.locales.length)
+        sel.innerHTML=BYLINE_I18N.locales.map(([c,n])=>'<option value="'+c+'">'+n+'</option>').join('');
+      sel.value=cur;
+    }
+  }
+  function renderSettings(){ renderLang(); renderTranslate(); renderQC(); renderSC(); renderActions(); const yc=$('#yoloCtxChk'); if(yc) yc.checked=yoloCtx; const sd=$('#sameDirChk'); if(sd) sd.checked=sameDir; }
   $('#langSel').addEventListener('change',e=>setLang(e.target.value));
+  $('#trSrc').addEventListener('change',e=>{ trCfg.src=e.target.value; saveTrCfg(); });
+  $('#trDst').addEventListener('change',e=>{ trCfg.dst=e.target.value; saveTrCfg(); });
   function applyI18n(){
     document.documentElement.lang=lang;
     document.querySelectorAll('[data-i18n]').forEach(n=>n.textContent=t(n.dataset.i18n));
@@ -1146,14 +1196,55 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     e.preventDefault(); openCtxMenu(sessMenuDefs(),s,e.clientX,e.clientY);
   });
 
+  /* ---------- translate: 翻译 on the terminal right-click menu, Google Translate in main ---------- */
+  // The result opens in a small popover at the click position; × / Esc / clicking anywhere
+  // outside closes it. Source text = the live selection, falling back to the clipboard
+  // (copy-on-select keeps it fresh). Closing mid-run aborts the request.
+  const transPop=$('#transPop'), transBody=$('#transBody'), transLangs=$('#transLangs');
+  let transSeq=0, transCurId=null;
+  const trNative=c=>{ const l=BYLINE_I18N.locales.find(([code])=>code===c); return l?l[1]:c; };
+  function positionTransPop(x,y){
+    const w=transPop.offsetWidth, h=transPop.offsetHeight;
+    transPop.style.left=Math.max(8,Math.min(x,innerWidth-w-8))+'px';
+    transPop.style.top=Math.max(8,Math.min(y,innerHeight-h-8))+'px';
+  }
+  function closeTransPop(){
+    if(!transPop.classList.contains('open')) return;
+    transPop.classList.remove('open');
+    if(transCurId){ byline.translateCancel(transCurId); transCurId=null; }
+    const s=sessions.get(activeId); s&&s.term.focus();
+  }
+  $('#transClose').addEventListener('click',closeTransPop);
+  async function startTranslate(s,x,y){
+    let text=s.term.getSelection();
+    if(!text||!text.trim()) text=await byline.clipboardText();
+    if(!text||!text.trim()){ toast(t('transEmpty')); return; }
+    if(transCurId) byline.translateCancel(transCurId);   // a new request replaces a running one
+    const id='t'+(++transSeq)+'-'+s.id;
+    transCurId=id;
+    transLangs.textContent=trNative(trCfg.src)+' → '+trNative(trCfg.dst);
+    transBody.textContent=t('transTranslating'); transBody.classList.add('busy');
+    transPop.classList.add('open');
+    positionTransPop(x,y);
+    L('translate',{id:s.id,len:text.length,src:trCfg.src,dst:trCfg.dst});
+    const res=await byline.translate({id,text,sl:GOOGLE_CODES[trCfg.src],tl:GOOGLE_CODES[trCfg.dst]});
+    if(transCurId!==id||!transPop.classList.contains('open')) return;   // closed or replaced meanwhile
+    transCurId=null;
+    transBody.classList.remove('busy');
+    if(res&&res.ok) transBody.textContent=res.text||'';
+    else { LE('translate-fail',{err:(res&&res.err)||'?'}); transBody.textContent=t('transFail').replace('{err}',(res&&res.err)||'?'); }
+    positionTransPop(x,y);   // re-clamp: the result is usually taller than the placeholder
+  }
+
   /* ---------- terminal area right-click: copy/paste + handoff + the sidebar quick commands ---------- */
-  function termMenuDefs(){
+  function termMenuDefs(x,y){
     const defs=[
       {key:'ctxCopy',  dim:s=>!s.term.hasSelection(), run:s=>byline.clipboardWrite(s.term.getSelection())},
       {key:'ctxPaste', run:s=>{ byline.clipboardFiles().then(paths=>{
         if(paths&&paths.length) pastePaths(s.id,paths);
         else byline.clipboardText().then(txt=>{ if(txt) s.term.paste(txt); });
       }); }},
+      {key:'ctxTranslate', run:s=>startTranslate(s,x,y)},
       {sep:true},
     ];
     const sc=sessCmds.filter(c=>c&&c.cmd);
@@ -1172,10 +1263,14 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     if(e.target.closest('.searchbar')) return;
     const box=e.target.closest('.session'); if(!box) return;
     const s=sessions.get(box.dataset.sid)||sessions.get(activeId); if(!s) return;
-    e.preventDefault(); openCtxMenu(termMenuDefs(),s,e.clientX,e.clientY);
+    e.preventDefault(); openCtxMenu(termMenuDefs(e.clientX,e.clientY),s,e.clientX,e.clientY);
   });
 
-  window.addEventListener('mousedown',e=>{ if(tabMenu.classList.contains('open') && !tabMenu.contains(e.target)) closeTabMenu(); });
+  window.addEventListener('mousedown',e=>{
+    if(tabMenu.classList.contains('open') && !tabMenu.contains(e.target)) closeTabMenu();
+    // the opening click lands before the popover exists, so this only fires on later clicks
+    if(transPop.classList.contains('open') && !transPop.contains(e.target)) closeTransPop();
+  });
   window.addEventListener('blur',closeTabMenu);
 
   $('#themeBtn').addEventListener('click',toggleTheme);
@@ -1188,7 +1283,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     if(e.target.closest('.tab-add,.tool')) return;
     byline.zoomWindow && byline.zoomWindow();
   });
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(tabMenu.classList.contains('open')) closeTabMenu(); else if(scrim.classList.contains('open')) closePalette(); else if(setScrim.classList.contains('open')) closeSettings(); else if(renameScrim.classList.contains('open')) closeRename(); } });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(tabMenu.classList.contains('open')) closeTabMenu(); else if(transPop.classList.contains('open')) closeTransPop(); else if(scrim.classList.contains('open')) closePalette(); else if(setScrim.classList.contains('open')) closeSettings(); else if(renameScrim.classList.contains('open')) closeRename(); } });
 
   L('renderer-boot',{lang,theme,quick:quick.length});
   applyI18n();

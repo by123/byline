@@ -1,7 +1,7 @@
 // Byline main process. A real terminal: each session is a genuine interactive login zsh
 // running on a PTY (node-pty). Raw bytes pass straight through to xterm.js in the renderer,
 // so everything works: p10k prompt, native tab completion, colors, vim, ssh, claude, codex.
-const { app, BrowserWindow, ipcMain, nativeTheme, screen, Menu, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, screen, Menu, shell, clipboard, net } = require('electron');
 const path = require('path');
 const { fileURLToPath } = require('url');
 const os = require('os');
@@ -411,6 +411,51 @@ ipcMain.handle('handoff:prepare', (_e, req) => {
     log.error('main', 'handoff-fail', { src: req && req.srcAgent, dst: req && req.dstAgent, err });
     return { ok: false, err: String((err && err.message) || err) };
   }
+});
+
+// --- Translate (terminal right-click 翻译) ---------------------------------------------
+// Free Google Translate endpoint (gtx) via net.fetch: the Chromium network stack, so the
+// system proxy applies — reachability matches the user's browser. Sub-second results.
+// The renderer passes Google language codes mapped from the UI locale list; the text
+// travels in the POST body, never in a URL or shell command line.
+const transJobs = new Map();   // id -> {ac, canceled, timedOut}, so closing the popover can cancel
+ipcMain.handle('translate:run', async (_e, req) => {
+  req = req || {};
+  const id = validId(req.id) ? req.id : null;
+  const text = typeof req.text === 'string' ? req.text.slice(0, 20000) : '';
+  const langOk = c => typeof c === 'string' && /^[A-Za-z-]{2,7}$/.test(c);
+  if (!id || !text.trim()) return { ok: false, err: 'empty' };
+  const sl = langOk(req.sl) ? req.sl : 'auto';
+  const tl = langOk(req.tl) ? req.tl : 'zh-CN';
+  log.info('main', 'translate-start', { id, sl, tl, len: text.length });   // text omitted (may be sensitive)
+  const t0 = Date.now();
+  const job = { ac: new AbortController(), canceled: false, timedOut: false };
+  transJobs.set(id, job);
+  const killT = setTimeout(() => { job.timedOut = true; job.ac.abort(); }, 20e3);
+  let res;
+  try {
+    const r = await net.fetch('https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + encodeURIComponent(sl) + '&tl=' + encodeURIComponent(tl), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'q=' + encodeURIComponent(text),
+      signal: job.ac.signal,
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    // response shape: [[["译文","source",…],…],…] — segment 0 of each row is the translation
+    if (!Array.isArray(data) || !Array.isArray(data[0])) throw new Error('unexpected response');
+    res = { ok: true, text: data[0].map(seg => (seg && seg[0]) || '').join('').trim() };
+  } catch (e) {
+    res = { ok: false, err: job.canceled ? 'canceled' : job.timedOut ? 'timeout' : String((e && e.message) || e).slice(0, 300) };
+  }
+  clearTimeout(killT);
+  transJobs.delete(id);
+  log[res.ok ? 'info' : 'warn']('main', res.ok ? 'translate-ok' : 'translate-fail', { id, ms: Date.now() - t0, err: res.err });
+  return res;
+});
+ipcMain.on('translate:cancel', (_e, { id } = {}) => {
+  const job = transJobs.get(id);
+  if (job) { log.info('main', 'translate-cancel', { id }); job.canceled = true; try { job.ac.abort(); } catch (_) {} }
 });
 
 // pty:input (keystrokes) and pty:resize are intentionally not logged: keystrokes are

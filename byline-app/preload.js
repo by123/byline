@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('byline', {
   // agent handoff: archive the source session's transcript and write the run.sh
   // that generates a summary and launches the target agent in a new tab
   handoffPrepare: (req)    => ipcRenderer.invoke('handoff:prepare', req),
+  // terminal right-click 翻译: Google Translate via main (net.fetch -> system proxy)
+  translate: (req)         => ipcRenderer.invoke('translate:run', req),
+  translateCancel: (id)    => ipcRenderer.send('translate:cancel', { id }),
   onData: (cb) => ipcRenderer.on('pty:data', (_e, d) => cb(d)),
   onExit: (cb) => ipcRenderer.on('pty:exit', (_e, d) => cb(d)),
   // configurable menu / shortcuts
