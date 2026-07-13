@@ -2,6 +2,11 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+[![Latest release](https://img.shields.io/github/v/release/by123/byline?sort=semver&color=2ea44f&label=release)](https://github.com/by123/byline/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/by123/byline/total?color=2ea44f&label=downloads)](https://github.com/by123/byline/releases)
+![Platform](https://img.shields.io/badge/platform-macOS%20Universal-333?logo=apple&logoColor=white)
+[![License: MIT](https://img.shields.io/github/license/by123/byline?color=blue)](LICENSE)
+
 **A macOS terminal that watches your AI agents work — and hands sessions between them.**
 
 ![Byline — Claude paused on a confirmation while Codex keeps thinking, statuses live in the sidebar](showcase.png)
@@ -20,6 +25,12 @@ Powerlevel10k prompt — everything just works. The UI ships in 23 languages (En
 default, switchable in Preferences).
 
 > **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.9.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+
+Or install with [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask by123/tap/byline
+```
 
 ---
 
@@ -224,7 +235,7 @@ byline-terminal/       Early single-file HTML design prototype (reference only)
 - Hook adapters for more agents out of the box
 - More handoff targets beyond `claude` ↔ `codex` (e.g. `cursor-agent`, `gemini`)
 - Split panes; session persistence across launches
-- Homebrew Cask
+- Get into the official `homebrew/cask` (interim: `brew install --cask by123/tap/byline`)
 - Tune per-agent "needs confirmation" patterns from real-world usage
 
 ## Contributing

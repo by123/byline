@@ -2,6 +2,11 @@
 
 [English](README.md) | **简体中文**
 
+[![Latest release](https://img.shields.io/github/v/release/by123/byline?sort=semver&color=2ea44f&label=release)](https://github.com/by123/byline/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/by123/byline/total?color=2ea44f&label=downloads)](https://github.com/by123/byline/releases)
+![Platform](https://img.shields.io/badge/platform-macOS%20Universal-333?logo=apple&logoColor=white)
+[![License: MIT](https://img.shields.io/github/license/by123/byline?color=blue)](LICENSE)
+
 **一个能看见 AI 工作状态、还能在 agent 之间移交会话的 macOS 终端。**
 
 ![Byline —— Claude 停在确认上、Codex 继续思考，状态实时显示在侧栏](showcase.png)
@@ -17,6 +22,12 @@ login `zsh`。原生补全、颜色、`vim`、`ssh`、你的 `.zshrc` 和 Powerl
 一切照常工作。界面支持 23 种语言（默认英文，可在偏好设置中切换）。
 
 > **[⬇ 下载 Byline](https://github.com/by123/byline/releases/latest)** · `v0.9.0` · macOS · 通用二进制（Apple Silicon 与 Intel）· 已签名并公证
+
+或用 [Homebrew](https://brew.sh) 安装：
+
+```sh
+brew install --cask by123/tap/byline
+```
 
 ---
 
@@ -198,7 +209,7 @@ byline-terminal/       早期单文件 HTML 设计原型（仅存档）
 - 内置更多 agent 的 hook 适配
 - 移交支持更多 agent（不止 `claude` ↔ `codex`，如 `cursor-agent`、`gemini`）
 - 分屏；会话跨启动持久化
-- Homebrew Cask
+- 进入官方 `homebrew/cask`（目前可用：`brew install --cask by123/tap/byline`）
 - 根据真实使用调优各 agent 的"需要确认"识别模式
 
 ## 参与
