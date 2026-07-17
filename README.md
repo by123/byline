@@ -24,7 +24,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.9.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.9.1` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 Or install with [Homebrew](https://brew.sh):
 
@@ -160,6 +160,11 @@ you'd rather keep the menu lean.
 - **Command palette** (`⌘K`) — every action and quick-launch, fuzzy-filtered
 - **Per-session quick prompts** — right-click a sidebar row to send a saved prompt
   ("continue", "commit my changes", …) straight into that session, without switching tabs
+- **Browse a session's conversation** — expand a sidebar row to see every line you
+  submitted in it as a list of turns; click one to open its record — a shell command
+  with its captured output, or, for a `claude`/`codex` turn, the clean conversation read
+  from the agent's own transcript (not the terminal's redraw noise). In-memory only;
+  no-echo secret prompts are never captured
 - **Right-click menu in the terminal** — copy/paste/translate plus the same quick prompts,
   handoff actions, and YOLO launchers, right where you're working
 - **Chrome-style tabs** — drag to reorder, double-click to rename, right-click for

@@ -413,6 +413,74 @@ ipcMain.handle('handoff:prepare', (_e, req) => {
   }
 });
 
+// --- Session transcript viewer (sidebar conversation dialog) --------------------------
+// The renderer's per-tab conversation list can open a dialog showing the real agent
+// conversation. The terminal only ever sees a full-screen agent's redraw noise, so the
+// clean record must come from the agent's own transcript file — the same source handoff
+// uses (tab-map first, newest-mtime fallback). Read-only; only the agent's own store.
+function txtFromContent(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts = [];
+  for (const b of content) {
+    if (!b || typeof b !== 'object') continue;
+    // keep spoken text only; skip thinking / tool_use / tool_result so the view stays clean
+    if ((b.type === 'text' || b.type === 'input_text' || b.type === 'output_text') && typeof b.text === 'string') parts.push(b.text);
+  }
+  return parts.join('\n');
+}
+// injected/system user messages that aren't things the human actually typed
+const INJECTED_USER_RE = /^\s*(<(command-name|command-message|command-args|local-command-stdout|environment_context|permissions|user_instructions|system-reminder|turn_aborted)\b|# AGENTS\.md|# Codebase|Caveat: The messages below)/i;
+function parseTranscript(file) {
+  const out = [];
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (_) { return out; }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let o; try { o = JSON.parse(line); } catch (_) { continue; }
+    let role = null, text = '';
+    const ts = o.timestamp || null;
+    if (o.message && (o.message.role === 'user' || o.message.role === 'assistant')) {   // claude
+      role = o.message.role; text = txtFromContent(o.message.content);
+    } else if (o.type === 'event_msg' && o.payload) {                                   // codex (cleanest stream)
+      if (o.payload.type === 'user_message') { role = 'user'; text = String(o.payload.message || ''); }
+      else if (o.payload.type === 'agent_message') { role = 'assistant'; text = String(o.payload.message || ''); }
+    }
+    if (!role) continue;
+    text = text.trim();
+    if (!text) continue;                                   // drops tool-result / thinking-only turns
+    if (role === 'user' && INJECTED_USER_RE.test(text)) continue;
+    out.push({ role, text: text.slice(0, 12000), ts });
+  }
+  return out;
+}
+ipcMain.handle('session:transcript', (_e, req) => {
+  try {
+    req = req || {};
+    let agent = req.agent === 'codex' ? 'codex' : (req.agent === 'claude' ? 'claude' : null);
+    const cwd = (typeof req.cwd === 'string' && path.isAbsolute(req.cwd)) ? req.cwd : HOME;
+    // resolve the transcript: prefer the tab-map (authoritative), else newest by mtime. When the
+    // agent is unknown, try whichever store has a map for this tab, then claude, then codex.
+    let found = null;
+    if (agent) found = mappedSession(agent, req.sid) || (agent === 'claude' ? newestClaudeSession(cwd) : newestCodexSession(cwd));
+    else {
+      for (const a of ['claude', 'codex']) { const m = mappedSession(a, req.sid); if (m) { found = m; agent = a; break; } }
+      if (!found) { found = newestClaudeSession(cwd); agent = 'claude'; if (!found) { found = newestCodexSession(cwd); agent = 'codex'; } }
+    }
+    if (!found || !found.file) { log.warn('main', 'transcript-no-session', { agent, cwd, tab: req.sid }); return { ok: false, err: 'no-session' }; }
+    let messages = parseTranscript(found.file);
+    const total = messages.length;
+    let truncated = false;
+    if (messages.length > 600) { messages = messages.slice(-600); truncated = true; }   // cap payload for very long sessions
+    log.info('main', 'transcript-read', { agent, sid: found.sid, shown: messages.length, total, tab: req.sid });
+    return { ok: true, agent, sid: found.sid, messages, truncated };
+  } catch (err) {
+    log.error('main', 'transcript-fail', { tab: req && req.sid, err: String((err && err.message) || err) });
+    return { ok: false, err: String((err && err.message) || err) };
+  }
+});
+
 // --- Translate (terminal right-click 翻译) ---------------------------------------------
 // Free Google Translate endpoint (gtx) via net.fetch: the Chromium network stack, so the
 // system proxy applies — reachability matches the user's browser. Sub-second results.
