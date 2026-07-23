@@ -102,6 +102,32 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 .searchbar .s-btn{width:22px;height:22px;border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;display:grid;place-items:center;padding:0;}
 .searchbar .s-btn:hover{background:var(--surface-2);color:var(--text);}
 
+/* left file-tree panel: browse the active tab's directory, drag any path into a terminal */
+.filetree{flex:0 0 230px;width:230px;display:none;flex-direction:column;border-right:1px solid var(--border);background:var(--surface-2);min-height:0;position:relative;}
+.filetree.open{display:flex;}
+.ft-resize{position:absolute;right:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:6;-webkit-app-region:no-drag;}
+.ft-resize::before{content:"";position:absolute;top:0;bottom:0;right:3px;width:1px;background:transparent;transition:background .15s;}
+.ft-resize:hover::before,.ft-resize.drag::before{background:var(--accent);}
+.ft-head{padding:12px 12px 9px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);}
+.ft-head h2{margin:0;font-size:13px;flex:0 0 auto;}
+.ft-root{flex:1 1 auto;min-width:0;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ft-btn{flex:0 0 auto;width:22px;height:22px;border:none;border-radius:6px;background:transparent;color:var(--faint);cursor:pointer;display:grid;place-items:center;padding:0;}
+.ft-btn:hover{background:var(--surface-3);color:var(--text);}
+.ft-list{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:6px 6px 12px;}
+.ft-list::-webkit-scrollbar{width:8px;}
+.ft-list::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px;}
+.ft-row{display:flex;align-items:center;gap:5px;height:24px;padding:0 6px;border-radius:6px;font-size:12px;color:var(--text);
+  cursor:pointer;user-select:none;white-space:nowrap;}
+.ft-row:hover{background:var(--surface);}
+.ft-caret{flex:0 0 10px;display:grid;place-items:center;color:var(--faint);transition:transform .15s ease;}
+.ft-row.open .ft-caret{transform:rotate(90deg);}
+.ft-ic{flex:0 0 auto;display:grid;place-items:center;color:var(--muted);}
+.ft-name{overflow:hidden;text-overflow:ellipsis;}
+.ft-row.ft-hidden .ft-name,.ft-row.ft-hidden .ft-ic{color:var(--faint);}   /* dotfiles */
+.ft-kids{display:none;}
+.ft-kids.open{display:block;}
+.ft-note{font-size:11px;color:var(--faint);padding:3px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
 .sidebar{flex:0 0 250px;width:250px;display:none;flex-direction:column;border-left:1px solid var(--border);background:var(--surface-2);min-height:0;position:relative;}
 .sidebar.open{display:flex;}
 .sb-resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:6;-webkit-app-region:no-drag;}
@@ -283,6 +309,9 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
       </button>
     </div>
     <div class="tools">
+      <button class="tool" id="filesBtn" title="Files (⌘E)" data-i18n-title="tipFiles" aria-label="Files">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+      </button>
       <button class="tool has-attn" id="sidebarBtn" title="Sessions (⌘B)" data-i18n-title="tipSessions" aria-label="Sessions">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
         <span class="badge" id="attnBadge">0</span>
@@ -300,6 +329,17 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   </div>
 
   <div class="body">
+    <aside class="filetree" id="filetree" aria-label="Files">
+      <div class="ft-head">
+        <h2 data-i18n="files">Files</h2>
+        <span class="ft-root" id="ftRoot"></span>
+        <button class="ft-btn" id="ftRefresh" title="Refresh" data-i18n-title="tipRefresh" aria-label="Refresh">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.34 6.34"/><path d="M20 4v7h-7"/></svg>
+        </button>
+      </div>
+      <div class="ft-list" id="ftList"></div>
+      <div class="ft-resize" id="ftResize" title="Drag to resize" data-i18n-title="tipResize"></div>
+    </aside>
     <div id="terminals">
       <div class="searchbar" id="searchBar" role="search">
         <input id="searchInput" placeholder="Search" data-i18n-ph="search" autocomplete="off" spellcheck="false" />
@@ -457,6 +497,9 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     grip:'<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="7" cy="13" r="1.2"/></svg>',
     enter:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>',
     caret:'<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+    folder:'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    file:'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+    tree:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>',
   };
 
   const THEMES={
@@ -671,7 +714,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
         if(f) setName(id,f);
         return true;
       });
-      term.parser.registerOscHandler(7,d=>{ try{ const u=new URL(String(d)); if(u.protocol==='file:'){ const p=decodeURIComponent(u.pathname); if(p) s.cwd=p; } }catch(_){} return true; });
+      term.parser.registerOscHandler(7,d=>{ try{ const u=new URL(String(d)); if(u.protocol==='file:'){ const p=decodeURIComponent(u.pathname); if(p){ s.cwd=p; if(id===activeId) ftSync(); } } }catch(_){} return true; });
     }catch(_){}
     // copy-on-select (iTerm-style): a finished selection lands on the clipboard, so 翻译
     // and pasting elsewhere both see it. Debounced — onSelectionChange fires per drag step.
@@ -694,7 +737,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   function activate(id){
     if(!sessions.has(id)) return;
     if(id!==activeId){ closeSearch(); L('activate',{id}); }
-    activeId=id; applyActive(); updateBadge();
+    activeId=id; applyActive(); updateBadge(); ftSync();
     const s=sessions.get(id);
     requestAnimationFrame(()=>{ try{s.fit.fit();}catch(_){} byline.resize(id,s.term.cols,s.term.rows); s.term.focus(); });
   }
@@ -904,6 +947,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     endFileDrag();
     if(!isFileDrag(e)) return;
     e.preventDefault();
+    if(e.target&&e.target.closest&&e.target.closest('.filetree')) return;   // the tree is a drag source, not a drop target
     const t=e.target&&e.target.closest?e.target.closest('.tab,.sess,.session'):null;
     const sid=(t&&t.dataset.sid)||activeId;
     const paths=filePathsFromDT(e.dataTransfer);
@@ -918,6 +962,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   function applyTheme(t){ theme=t; document.documentElement.dataset.theme=t; for(const s of sessions.values()) s.term.options.theme=THEMES[t]; }
   function toggleTheme(){ const nt=theme==='dark'?'light':'dark'; L('theme',{theme:nt}); applyTheme(nt); }
   function toggleSidebar(force){ const sb=$('#sidebar'); const open=force!=null?force:!sb.classList.contains('open'); L('sidebar',{open}); sb.classList.toggle('open',open); $('#sidebarBtn').classList.toggle('on',open); setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },60); }
+  function toggleFiletree(force){ const ft=$('#filetree'); const open=force!=null?force:!ft.classList.contains('open'); L('filetree',{open}); ft.classList.toggle('open',open); $('#filesBtn').classList.toggle('on',open); if(open) ftSync(true); setTimeout(()=>{ const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows);} },60); }
 
   function handleKey(e,id,term){
     if(e.type!=='keydown') return true;
@@ -1024,6 +1069,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     {id:'newShell', key:'actNewShell', def:'Cmd+T', ic:IC.plus,  run:()=>newSession()},
     {id:'closeTab', key:'actCloseTab', def:'Cmd+W', ic:IC.close, run:()=>closeSession(activeId)},
     {id:'rename',   key:'actRename',   def:'Cmd+R', ic:IC.side,  run:()=>{ const s=sessions.get(activeId); if(s) openRename(s); }},
+    {id:'filetree', key:'actFiles',    def:'Cmd+E', ic:IC.tree,  run:()=>toggleFiletree()},
     {id:'sidebar',  key:'actSidebar',  def:'Cmd+B', ic:IC.side,  run:()=>toggleSidebar()},
     {id:'palette',  key:'actPalette',  def:'Cmd+K', ic:IC.side,  run:()=>{ scrim.classList.contains('open')?closePalette():openPalette(); }},
     {id:'search',   key:'search',      def:'Cmd+F', ic:IC.find,  run:()=>openSearch()},
@@ -1220,6 +1266,93 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     addEventListener('mousemove',e=>{ if(!drag) return; setW(clampW(window.innerWidth-e.clientX)); if(!raf) raf=requestAnimationFrame(fitActive); });
     addEventListener('mouseup',()=>{ if(!drag) return; drag=false; handle.classList.remove('drag'); document.body.style.cursor=''; document.body.style.userSelect='';
       localStorage.setItem(SB_KEY, parseInt(sb.style.width,10)||250);
+      const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows); } });
+  })();
+
+  /* ---------- left file tree: browse the active tab's directory, drag paths into a terminal ---------- */
+  // Root follows the active session's cwd (OSC 7), so cd / tab switches re-root the tree.
+  // Directories lazy-load on expand; expanded paths survive re-renders and tab switches
+  // (paths that don't exist under the new root simply don't render). Rows are draggable:
+  // dragstart writes a file:// uri-list, so the existing file-drop handler pastes the
+  // zsh-quoted path into whichever terminal / tab / session row it lands on.
+  const ftPanel=$('#filetree'), ftListEl=$('#ftList'), ftRootEl=$('#ftRoot');
+  const ftExpanded=new Set();
+  let ftReq=null, ftSeq=0;                     // last requested root ('' = main falls back to $HOME)
+  const ftIsOpen=()=>ftPanel.classList.contains('open');
+  function ftNote(msg,depth){ const n=el('div','ft-note'); n.textContent=msg; n.style.paddingLeft=(21+depth*13)+'px'; return n; }
+  function ftRow(ent,depth){
+    const wrap=el('div','ft-item');
+    const row=el('div','ft-row'+(ent.name[0]==='.'?' ft-hidden':''));
+    row.style.paddingLeft=(6+depth*13)+'px';
+    row.appendChild(el('span','ft-caret',ent.dir?IC.caret:''));
+    row.appendChild(el('span','ft-ic',ent.dir?IC.folder:IC.file));
+    const nm=el('span','ft-name'); nm.textContent=ent.name; row.appendChild(nm);
+    row.title=ent.path;
+    row.draggable=true;
+    row.addEventListener('dragstart',e=>{
+      e.dataTransfer.setData('text/uri-list','file://'+ent.path.split('/').map(encodeURIComponent).join('/'));
+      e.dataTransfer.setData('text/plain',ent.path);
+      e.dataTransfer.effectAllowed='copy';
+    });
+    wrap.appendChild(row);
+    // double-click a file: open with the system default app (dirs keep click=expand only)
+    if(!ent.dir) row.addEventListener('dblclick',()=>{
+      L('filetree-open',{});   // path omitted (may be sensitive)
+      byline.openPath(ent.path).then(res=>{ if(!res||!res.ok) toast(t('ftOpenFail')); });
+    });
+    if(ent.dir){
+      const kids=el('div','ft-kids'); wrap.appendChild(kids);
+      const setOpen=open=>{
+        row.classList.toggle('open',open); kids.classList.toggle('open',open);
+        if(open){ ftExpanded.add(ent.path); ftLoadInto(kids,ent.path,depth+1); }
+        else { ftExpanded.delete(ent.path); kids.innerHTML=''; }
+      };
+      row.addEventListener('click',()=>setOpen(!row.classList.contains('open')));
+      if(ftExpanded.has(ent.path)) setOpen(true);
+    }
+    return wrap;
+  }
+  function ftFill(container,res,depth){
+    container.innerHTML='';
+    if(!res||!res.ok){ container.appendChild(ftNote(t('ftFail'),depth)); return; }
+    if(!res.entries.length){ container.appendChild(ftNote(t('ftEmpty'),depth)); return; }
+    const base=res.dir==='/'?'':res.dir;
+    for(const e0 of res.entries) container.appendChild(ftRow({name:e0.name,dir:e0.dir,path:base+'/'+e0.name},depth));
+    if(res.more) container.appendChild(ftNote(t('ftMore').replace('{n}',res.more),depth));
+  }
+  async function ftLoadInto(container,dir,depth){
+    container.dataset.want=dir;
+    const res=await byline.listDir(dir);
+    if(!container.isConnected||container.dataset.want!==dir) return;   // collapsed / re-rendered meanwhile
+    ftFill(container,res,depth);
+  }
+  function ftSync(force){
+    if(!ftIsOpen()) return;
+    const s=sessions.get(activeId);
+    const want=(s&&s.cwd)||'';
+    if(!force&&want===ftReq) return;   // OSC 7 fires at every prompt; only re-read on a real cwd change
+    ftReq=want;
+    const seq=++ftSeq;
+    byline.listDir(want).then(res=>{
+      if(seq!==ftSeq||!ftIsOpen()) return;
+      if(res&&res.dir){ ftRootEl.textContent=res.dir.split('/').pop()||res.dir; ftRootEl.title=res.dir; }
+      ftFill(ftListEl,res,0);
+    });
+  }
+  $('#ftRefresh').addEventListener('click',()=>ftSync(true));
+  // file-tree width: mirror of the sessions-sidebar resizer, persisted separately
+  (function(){
+    const FT_W='byline.filetree.w', handle=$('#ftResize');
+    const clampW=w=>Math.max(160,Math.min(500,w));
+    const setW=w=>{ ftPanel.style.flex='0 0 '+w+'px'; ftPanel.style.width=w+'px'; };
+    const saved=parseInt(localStorage.getItem(FT_W),10);
+    if(saved) setW(clampW(saved));
+    let drag=false, raf=0;
+    const fitActive=()=>{ raf=0; const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} } };
+    handle.addEventListener('mousedown',e=>{ drag=true; e.preventDefault(); handle.classList.add('drag'); document.body.style.cursor='col-resize'; document.body.style.userSelect='none'; });
+    addEventListener('mousemove',e=>{ if(!drag) return; setW(clampW(e.clientX-ftPanel.getBoundingClientRect().left)); if(!raf) raf=requestAnimationFrame(fitActive); });
+    addEventListener('mouseup',()=>{ if(!drag) return; drag=false; handle.classList.remove('drag'); document.body.style.cursor=''; document.body.style.userSelect='';
+      localStorage.setItem(FT_W, parseInt(ftPanel.style.width,10)||230);
       const s=sessions.get(activeId); if(s){ try{s.fit.fit();}catch(_){} byline.resize(activeId,s.term.cols,s.term.rows); } });
   })();
 
@@ -1476,6 +1609,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
 
   $('#themeBtn').addEventListener('click',toggleTheme);
   $('#paletteBtn').addEventListener('click',openPalette);
+  $('#filesBtn').addEventListener('click',()=>toggleFiletree());
   $('#sidebarBtn').addEventListener('click',()=>toggleSidebar());
   $('#settingsBtn').addEventListener('click',openSettings);
   $('.titlebar').addEventListener('dblclick',e=>{

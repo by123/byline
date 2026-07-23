@@ -24,7 +24,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.9.1` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.10.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 Or install with [Homebrew](https://brew.sh):
 
@@ -121,6 +121,9 @@ language.
   `cat` of a huge file can't freeze the UI
 - **Files → paths** — ⌘V a file copied in Finder, or drag files onto the window, and the
   shell-quoted full path is inserted (like Terminal.app)
+- **File tree** (`⌘E`) — a left-hand panel that follows the active tab's working
+  directory: expand and collapse folders, drag any file or folder into a terminal to
+  insert its shell-quoted path, double-click a file to open it in its default app
 - **Links & clipboard** — plain-text URLs and OSC 8 hyperlinks are clickable (opening in
   your default browser), OSC 52 lets `tmux`/`nvim`/`ssh` copy to your clipboard
 - **Copy on select & instant translate** — selecting text copies it automatically;
@@ -181,7 +184,7 @@ you'd rather keep the menu lean.
 | `⌘N` / `⌘M` | New Claude / Codex | `⌘F` | Search scrollback |
 | `⌘O` / `⌘P` | New Claude / Codex (YOLO) | `⌘1…9` | Switch tab (visual order) |
 | `⌘+ / ⌘- / ⌘0` | Font size | `⌘R` | Rename tab |
-| `⌘,` | Preferences | | |
+| `⌘,` | Preferences | `⌘E` | Toggle file tree |
 
 Everything else goes straight to the shell.
 
@@ -223,7 +226,7 @@ byline-app/            The Electron app
 ├── main.js            Main process: PTY sessions, status-file watcher, agent handoff, app menu
 ├── preload.js         Sandboxed, context-isolated window.byline bridge
 ├── renderer/
-│   ├── index.html     xterm.js UI: tabs, sidebar, status state machine, palette
+│   ├── index.html     xterm.js UI: tabs, sidebar, file tree, status state machine, palette
 │   └── vendor/        Vendored xterm.js + addons (no CDN at runtime)
 ├── shell/             ZDOTDIR z-files: source the user's config + OSC 133 markers
 └── build/             App icon

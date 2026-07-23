@@ -244,6 +244,15 @@ ipcMain.on('shell:open-external', (_e, { url }) => {
   else log.warn('main', 'open-external-reject', { url });
 });
 
+// File-tree double-click: open a file with the system default app. shell.openPath
+// resolves to '' on success or an error message.
+ipcMain.handle('shell:open-path', async (_e, { path: p } = {}) => {
+  if (typeof p !== 'string' || !path.isAbsolute(p) || !fs.existsSync(p)) { log.warn('main', 'open-path-reject', {}); return { ok: false, err: 'bad-path' }; }
+  const err = await shell.openPath(p);
+  log[err ? 'warn' : 'info']('main', err ? 'open-path-fail' : 'open-path', err ? { err } : {});   // path omitted (may be sensitive)
+  return err ? { ok: false, err } : { ok: true };
+});
+
 // Finder's Cmd+C puts file *references* on the pasteboard, not paths, so the renderer can't
 // read them from the DOM paste event alone. Resolve them here: NSFilenamesPboardType is an
 // XML plist listing every copied file; public.file-url covers single-file copies from other apps.
@@ -526,6 +535,29 @@ ipcMain.on('translate:cancel', (_e, { id } = {}) => {
   if (job) { log.info('main', 'translate-cancel', { id }); job.canceled = true; try { job.ac.abort(); } catch (_) {} }
 });
 
+// --- File tree (left panel) -------------------------------------------------------------
+// Read-only directory listing for the renderer's file tree. Names + is-dir only, never file
+// contents. Non-absolute or unreadable roots fall back to $HOME; the resolved root is echoed
+// back so the renderer can label the panel and build child paths from it.
+const FT_MAX = 400;   // per-directory cap so node_modules-sized dirs don't flood the IPC
+ipcMain.handle('fs:list', (_e, { dir } = {}) => {
+  let root = (typeof dir === 'string' && path.isAbsolute(dir)) ? path.normalize(dir) : HOME;
+  try { if (!fs.statSync(root).isDirectory()) root = HOME; } catch (_) { root = HOME; }
+  try {
+    const entries = fs.readdirSync(root, { withFileTypes: true }).map(e => {
+      let isDir = e.isDirectory();
+      // a symlinked dir should still be expandable; a broken link stays a plain file
+      if (!isDir && e.isSymbolicLink()) { try { isDir = fs.statSync(path.join(root, e.name)).isDirectory(); } catch (_) {} }
+      return { name: e.name, dir: isDir };
+    }).sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    const more = Math.max(0, entries.length - FT_MAX);
+    return { ok: true, dir: root, entries: more ? entries.slice(0, FT_MAX) : entries, more };
+  } catch (err) {
+    log.warn('main', 'fs-list-fail', { err: String((err && err.message) || err) });   // path omitted (may be sensitive)
+    return { ok: false, dir: root, err: String((err && err.message) || err) };
+  }
+});
+
 // pty:input (keystrokes) and pty:resize are intentionally not logged: keystrokes are
 // high-frequency and could capture secrets; resize fires continuously while dragging.
 ipcMain.on('pty:input',  (_e, { id, data }) => { const s = sessions.get(id); if (s) s.p.write(data); });
@@ -564,6 +596,7 @@ function buildMenu(payload) {
 
   const opSub = [
     act('rename', 'Rename current tab'),
+    act('filetree', 'Show/hide files panel'),
     act('sidebar', 'Show/hide sessions sidebar'),
     act('palette', 'Command palette'),
     act('search', 'Search'),

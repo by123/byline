@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('byline', {
   handoffPrepare: (req)    => ipcRenderer.invoke('handoff:prepare', req),
   // read a tab's agent transcript for the sidebar conversation dialog (clean past record)
   sessionTranscript: (req) => ipcRenderer.invoke('session:transcript', req),
+  // left file-tree panel: read-only directory listing (names + is-dir), rooted at the tab's cwd
+  listDir: (dir)           => ipcRenderer.invoke('fs:list', { dir }),
+  // file-tree double-click: open with the system default app
+  openPath: (p)            => ipcRenderer.invoke('shell:open-path', { path: p }),
   // terminal right-click 翻译: Google Translate via main (net.fetch -> system proxy)
   translate: (req)         => ipcRenderer.invoke('translate:run', req),
   translateCancel: (id)    => ipcRenderer.send('translate:cancel', { id }),
