@@ -558,6 +558,72 @@ ipcMain.handle('fs:list', (_e, { dir } = {}) => {
   }
 });
 
+// File-tree right-click operations. Every path must be absolute and exist; a supplied
+// name is validated so it can never escape its parent directory. Full paths stay out of
+// the log (may be sensitive) — the renderer already has them and re-reads on success.
+const errStr = e => String((e && e.message) || e).slice(0, 300);
+const okPath = p => typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p);
+const badName = n => typeof n !== 'string' || !n.length || n === '.' || n === '..' || /[/\\\x00]/.test(n);
+
+// Reveal in Finder (select the item in its containing folder).
+ipcMain.handle('fs:reveal', (_e, { path: p } = {}) => {
+  if (!okPath(p)) { log.warn('main', 'fs-reveal-reject', {}); return { ok: false, err: 'bad-path' }; }
+  try { shell.showItemInFolder(p); log.info('main', 'fs-reveal', {}); return { ok: true }; }
+  catch (e) { log.warn('main', 'fs-reveal-fail', { err: errStr(e) }); return { ok: false, err: errStr(e) }; }
+});
+
+// Move to Trash (reversible from Finder). Refuse $HOME and the volume root as a guard.
+ipcMain.handle('fs:trash', async (_e, { path: p } = {}) => {
+  if (!okPath(p)) { log.warn('main', 'fs-trash-reject', {}); return { ok: false, err: 'bad-path' }; }
+  if (p === HOME || p === path.parse(p).root) { log.warn('main', 'fs-trash-protected', {}); return { ok: false, err: 'protected' }; }
+  try { await shell.trashItem(p); log.info('main', 'fs-trash', {}); return { ok: true }; }
+  catch (e) { log.warn('main', 'fs-trash-fail', { err: errStr(e) }); return { ok: false, err: errStr(e) }; }
+});
+
+// Rename within the same directory.
+ipcMain.handle('fs:rename', (_e, { path: p, name } = {}) => {
+  if (!okPath(p)) { log.warn('main', 'fs-rename-reject', {}); return { ok: false, err: 'bad-path' }; }
+  if (badName(name)) { log.warn('main', 'fs-rename-badname', {}); return { ok: false, err: 'bad-name' }; }
+  const target = path.join(path.dirname(p), name);
+  if (target === p) return { ok: true, path: p };
+  if (fs.existsSync(target)) { log.warn('main', 'fs-rename-exists', {}); return { ok: false, err: 'exists' }; }
+  try { fs.renameSync(p, target); log.info('main', 'fs-rename', {}); return { ok: true, path: target }; }
+  catch (e) { log.warn('main', 'fs-rename-fail', { err: errStr(e) }); return { ok: false, err: errStr(e) }; }
+});
+
+// Create an empty file or a folder inside an existing directory.
+ipcMain.handle('fs:create', (_e, { parent, name, dir } = {}) => {
+  if (typeof parent !== 'string' || !path.isAbsolute(parent)) { log.warn('main', 'fs-create-reject', {}); return { ok: false, err: 'bad-path' }; }
+  try { if (!fs.statSync(parent).isDirectory()) return { ok: false, err: 'bad-path' }; } catch (_) { return { ok: false, err: 'bad-path' }; }
+  if (badName(name)) { log.warn('main', 'fs-create-badname', {}); return { ok: false, err: 'bad-name' }; }
+  const target = path.join(parent, name);
+  if (fs.existsSync(target)) { log.warn('main', 'fs-create-exists', {}); return { ok: false, err: 'exists' }; }
+  try {
+    if (dir) fs.mkdirSync(target);
+    else fs.writeFileSync(target, '', { flag: 'wx' });
+    log.info('main', 'fs-create', { dir: !!dir });
+    return { ok: true, path: target };
+  } catch (e) { log.warn('main', 'fs-create-fail', { err: errStr(e) }); return { ok: false, err: errStr(e) }; }
+});
+
+// Duplicate a file or folder next to it as "name copy", "name copy 2", … (Finder-style).
+ipcMain.handle('fs:duplicate', (_e, { path: p } = {}) => {
+  if (!okPath(p)) { log.warn('main', 'fs-dup-reject', {}); return { ok: false, err: 'bad-path' }; }
+  let isDir = false;
+  try { isDir = fs.statSync(p).isDirectory(); } catch (_) {}
+  const parent = path.dirname(p), full = path.basename(p);
+  const ext = isDir ? '' : path.extname(full);
+  const base = isDir ? full : path.basename(full, ext);
+  let target = '';
+  for (let i = 1; i < 1000; i++) {
+    const cand = path.join(parent, base + (i === 1 ? ' copy' : ' copy ' + i) + ext);
+    if (!fs.existsSync(cand)) { target = cand; break; }
+  }
+  if (!target) { log.warn('main', 'fs-dup-nofree', {}); return { ok: false, err: 'exists' }; }
+  try { fs.cpSync(p, target, { recursive: true }); log.info('main', 'fs-dup', {}); return { ok: true, path: target }; }
+  catch (e) { log.warn('main', 'fs-dup-fail', { err: errStr(e) }); return { ok: false, err: errStr(e) }; }
+});
+
 // pty:input (keystrokes) and pty:resize are intentionally not logged: keystrokes are
 // high-frequency and could capture secrets; resize fires continuously while dragging.
 ipcMain.on('pty:input',  (_e, { id, data }) => { const s = sessions.get(id); if (s) s.p.write(data); });

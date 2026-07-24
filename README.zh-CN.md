@@ -21,7 +21,7 @@ Byline 底层是一个*真正的*终端，不是包装出来的 UI：[xterm.js](
 login `zsh`。原生补全、颜色、`vim`、`ssh`、你的 `.zshrc` 和 Powerlevel10k 提示符 ——
 一切照常工作。界面支持 23 种语言（默认英文，可在偏好设置中切换）。
 
-> **[⬇ 下载 Byline](https://github.com/by123/byline/releases/latest)** · `v0.10.0` · macOS · 通用二进制（Apple Silicon 与 Intel）· 已签名并公证
+> **[⬇ 下载 Byline](https://github.com/by123/byline/releases/latest)** · `v0.11.0` · macOS · 通用二进制（Apple Silicon 与 Intel）· 已签名并公证
 
 或用 [Homebrew](https://brew.sh) 安装：
 
@@ -105,7 +105,9 @@ Byline 的另一件核心大事。开工的模型未必适合收尾 —— Claud
 - **文件 → 路径** —— Finder 里 ⌘C 复制文件后在终端 ⌘V，或直接把文件拖进窗口，
   自动插入 shell 转义好的完整路径（和 Terminal.app 一样）
 - **文件树**（`⌘E`）—— 左侧面板跟随当前标签的工作目录：目录可展开收起，把任意
-  文件或文件夹拖进终端即插入 shell 转义好的路径，双击文件用系统默认应用打开
+  文件或文件夹拖进终端即插入 shell 转义好的路径，双击文件用系统默认应用打开；
+  右键即可完成常用操作 —— 在访达中显示、新建文件/文件夹、重命名、创建副本、
+  复制路径或名称、在新终端中打开文件夹、移到废纸篓
 - **链接与剪贴板** —— 纯文本 URL 和 OSC 8 超链接可点击（默认浏览器打开），
   OSC 52 让 `tmux`/`nvim`/`ssh` 里的复制直达系统剪贴板
 - **选中即复制 & 即时翻译** —— 选中文本自动复制到剪贴板；右键 → **翻译**，译文就在

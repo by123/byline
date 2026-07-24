@@ -408,6 +408,14 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     </div>
   </div>
 
+  <div class="scrim" id="ftPromptScrim">
+    <div class="renamer" role="dialog" aria-label="Name">
+      <div class="rn-title" id="ftpTitle"></div>
+      <input id="ftpInput" autocomplete="off" spellcheck="false" autocapitalize="off" />
+      <div class="rn-row"><button class="rn-btn" id="ftpCancel" data-i18n="cancel">Cancel</button><button class="rn-btn primary" id="ftpOk" data-i18n="ok">OK</button></div>
+    </div>
+  </div>
+
   <div class="scrim" id="convScrim">
     <div class="convmodal" role="dialog" aria-label="Conversation record">
       <div class="cm-head">
@@ -538,6 +546,25 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   $('#renameCancel').addEventListener('click',closeRename);
   renameInput.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter'){e.preventDefault();commitRename();} else if(e.key==='Escape'){e.preventDefault();closeRename();} });
   renameScrim.addEventListener('click',e=>{ if(e.target===renameScrim) closeRename(); });
+
+  /* ---------- generic name prompt (file-tree new / rename), returns a Promise<string|null> ---------- */
+  const ftPromptScrim=$('#ftPromptScrim'), ftpInput=$('#ftpInput'), ftpTitle=$('#ftpTitle');
+  let ftpResolve=null;
+  function ftPrompt(title,value){
+    return new Promise(resolve=>{
+      ftpResolve=resolve; ftpTitle.textContent=title||''; ftpInput.value=value||'';
+      ftPromptScrim.classList.add('open');
+      setTimeout(()=>{ ftpInput.focus();
+        const dot=(value||'').lastIndexOf('.');   // rename: preselect the base name, keep the extension
+        if(dot>0) ftpInput.setSelectionRange(0,dot); else ftpInput.select();
+      },30);
+    });
+  }
+  function ftpDone(val){ if(!ftPromptScrim.classList.contains('open')) return; ftPromptScrim.classList.remove('open'); const r=ftpResolve; ftpResolve=null; if(r) r(val); const s=sessions.get(activeId); s&&s.term.focus(); }
+  $('#ftpOk').addEventListener('click',()=>ftpDone(ftpInput.value.trim()||null));
+  $('#ftpCancel').addEventListener('click',()=>ftpDone(null));
+  ftpInput.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter'){e.preventDefault();ftpDone(ftpInput.value.trim()||null);} else if(e.key==='Escape'){e.preventDefault();ftpDone(null);} });
+  ftPromptScrim.addEventListener('click',e=>{ if(e.target===ftPromptScrim) ftpDone(null); });
 
   /* ---------- incremental UI ---------- */
   function buildTab(s){
@@ -728,7 +755,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     });
     term.attachCustomKeyEventHandler(e=>handleKey(e,id,term));
     activate(id);
-    requestAnimationFrame(()=>{ try{fit.fit();}catch(_){} byline.start(id,term.cols,term.rows,srcCwd); term.focus(); });
+    requestAnimationFrame(()=>{ try{fit.fit();}catch(_){} byline.start(id,term.cols,term.rows,opts.cwd||srcCwd); term.focus(); });
     setTimeout(()=>{ try{fit.fit();}catch(_){} byline.resize(id,term.cols,term.rows); },120);
     if(opts.cmd){ setTimeout(()=>byline.input(id,opts.cmd+'\n'),700); if(isYolo(opts.cmd)) setAutoConfirm(s,true); }
     updateBadge();
@@ -1277,7 +1304,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
   // zsh-quoted path into whichever terminal / tab / session row it lands on.
   const ftPanel=$('#filetree'), ftListEl=$('#ftList'), ftRootEl=$('#ftRoot');
   const ftExpanded=new Set();
-  let ftReq=null, ftSeq=0;                     // last requested root ('' = main falls back to $HOME)
+  let ftReq=null, ftSeq=0, ftRootDir='';       // last requested root ('' = main falls back to $HOME); ftRootDir = resolved root
   const ftIsOpen=()=>ftPanel.classList.contains('open');
   function ftNote(msg,depth){ const n=el('div','ft-note'); n.textContent=msg; n.style.paddingLeft=(21+depth*13)+'px'; return n; }
   function ftRow(ent,depth){
@@ -1288,6 +1315,7 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     row.appendChild(el('span','ft-ic',ent.dir?IC.folder:IC.file));
     const nm=el('span','ft-name'); nm.textContent=ent.name; row.appendChild(nm);
     row.title=ent.path;
+    row._ftEnt=ent;                       // right-click reads this to build the file/folder menu
     row.draggable=true;
     row.addEventListener('dragstart',e=>{
       e.dataTransfer.setData('text/uri-list','file://'+ent.path.split('/').map(encodeURIComponent).join('/'));
@@ -1335,11 +1363,104 @@ body.file-drag #terminals::after{content:'';position:absolute;inset:6px;z-index:
     const seq=++ftSeq;
     byline.listDir(want).then(res=>{
       if(seq!==ftSeq||!ftIsOpen()) return;
-      if(res&&res.dir){ ftRootEl.textContent=res.dir.split('/').pop()||res.dir; ftRootEl.title=res.dir; }
+      if(res&&res.dir){ ftRootDir=res.dir; ftRootEl.textContent=res.dir.split('/').pop()||res.dir; ftRootEl.title=res.dir; }
       ftFill(ftListEl,res,0);
     });
   }
   $('#ftRefresh').addEventListener('click',()=>ftSync(true));
+
+  /* ---------- file-tree right-click: file / folder operations ---------- */
+  // A mutation just re-reads the tree; expanded folders re-expand from ftExpanded, so the
+  // affected row reappears renamed / duplicated / gone without any per-node surgery.
+  const ftParentOf=p=>{ const i=p.lastIndexOf('/'); return i>0?p.slice(0,i):'/'; };
+  function ftToastErr(res){
+    const e=(res&&res.err)||'?';
+    if(e==='exists'){ toast(t('ftmErrExists')); return; }
+    if(e==='bad-name'){ toast(t('ftmErrBadName')); return; }
+    toast(t('ftmErr').replace('{err}',e));
+  }
+  function ftOpenInTerminal(ent){
+    const dir=ent.dir?ent.path:ftParentOf(ent.path);
+    newSession({cwd:dir,title:dir.split('/').pop()||dir});
+  }
+  async function ftRename(ent){
+    const name=await ftPrompt(t('rename'),ent.name);
+    if(name==null||name===ent.name) return;
+    const res=await byline.renamePath(ent.path,name);
+    if(!res||!res.ok){ ftToastErr(res); return; }
+    if(ent.dir&&ftExpanded.has(ent.path)){ ftExpanded.delete(ent.path); if(res.path) ftExpanded.add(res.path); }
+    L('filetree-rename',{dir:!!ent.dir}); ftSync(true);
+  }
+  async function ftDuplicate(ent){
+    const res=await byline.duplicatePath(ent.path);
+    if(!res||!res.ok){ ftToastErr(res); return; }
+    L('filetree-duplicate',{dir:!!ent.dir}); ftSync(true);
+  }
+  async function ftCreate(parentPath,dir){
+    const name=await ftPrompt(dir?t('ftmNewFolderTitle'):t('ftmNewFileTitle'),'');
+    if(name==null) return;
+    const res=await byline.createEntry(parentPath,name,dir);
+    if(!res||!res.ok){ ftToastErr(res); return; }
+    ftExpanded.add(parentPath);                 // reveal the freshly-created item
+    L('filetree-create',{dir:!!dir}); ftSync(true);
+  }
+  async function ftTrash(ent){
+    const res=await byline.trashPath(ent.path);
+    if(!res||!res.ok){ ftToastErr(res); return; }
+    ftExpanded.delete(ent.path);
+    L('filetree-trash',{dir:!!ent.dir}); ftSync(true);
+  }
+  const ftCopyItems=ent=>[
+    {key:'ftmCopyPath', run:e=>byline.clipboardWrite(e.path)},
+    {key:'ftmCopyName', run:e=>byline.clipboardWrite(e.name)},
+  ];
+  function ftFileMenu(ent){
+    return [
+      {key:'ftmOpen', run:e=>{ L('filetree-open',{}); byline.openPath(e.path).then(r=>{ if(!r||!r.ok) toast(t('ftOpenFail')); }); }},
+      {key:'ftmReveal', run:e=>byline.revealPath(e.path)},
+      {sep:true},
+      ...ftCopyItems(ent),
+      {sep:true},
+      {key:'rename', run:e=>ftRename(e)},
+      {key:'ftmDuplicate', run:e=>ftDuplicate(e)},
+      {sep:true},
+      {key:'ftmTrash', danger:true, run:e=>ftTrash(e)},
+    ];
+  }
+  function ftDirMenu(ent){
+    return [
+      {key:'ftmOpenTerm', run:e=>ftOpenInTerminal(e)},
+      {key:'ftmReveal', run:e=>byline.revealPath(e.path)},
+      {sep:true},
+      {key:'ftmNewFile', run:e=>ftCreate(e.path,false)},
+      {key:'ftmNewFolder', run:e=>ftCreate(e.path,true)},
+      {sep:true},
+      ...ftCopyItems(ent),
+      {sep:true},
+      {key:'rename', run:e=>ftRename(e)},
+      {key:'ftmDuplicate', run:e=>ftDuplicate(e)},
+      {sep:true},
+      {key:'ftmTrash', danger:true, run:e=>ftTrash(e)},
+    ];
+  }
+  function ftRootMenu(){
+    const rootEnt={name:ftRootDir.split('/').pop()||ftRootDir,dir:true,path:ftRootDir};
+    return [
+      {key:'ftmNewFile', run:()=>ftCreate(ftRootDir,false)},
+      {key:'ftmNewFolder', run:()=>ftCreate(ftRootDir,true)},
+      {sep:true},
+      {key:'ftmReveal', run:()=>byline.revealPath(ftRootDir)},
+      {key:'ftmOpenTerm', run:()=>ftOpenInTerminal(rootEnt)},
+      {sep:true},
+      {key:'tipRefresh', run:()=>ftSync(true)},
+    ];
+  }
+  ftListEl.addEventListener('contextmenu',e=>{
+    e.preventDefault();
+    const row=e.target.closest('.ft-row');
+    if(row&&row._ftEnt){ const ent=row._ftEnt; openCtxMenu(ent.dir?ftDirMenu(ent):ftFileMenu(ent),ent,e.clientX,e.clientY); }
+    else if(ftRootDir){ openCtxMenu(ftRootMenu(),null,e.clientX,e.clientY); }
+  });
   // file-tree width: mirror of the sessions-sidebar resizer, persisted separately
   (function(){
     const FT_W='byline.filetree.w', handle=$('#ftResize');

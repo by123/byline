@@ -24,7 +24,7 @@ interactive login `zsh`. Native tab completion, colors, `vim`, `ssh`, your `.zsh
 Powerlevel10k prompt — everything just works. The UI ships in 23 languages (English by
 default, switchable in Preferences).
 
-> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.10.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
+> **[⬇ Download Byline](https://github.com/by123/byline/releases/latest)** · `v0.11.0` · macOS · Universal (Apple Silicon & Intel) · signed & notarized
 
 Or install with [Homebrew](https://brew.sh):
 
@@ -123,7 +123,9 @@ language.
   shell-quoted full path is inserted (like Terminal.app)
 - **File tree** (`⌘E`) — a left-hand panel that follows the active tab's working
   directory: expand and collapse folders, drag any file or folder into a terminal to
-  insert its shell-quoted path, double-click a file to open it in its default app
+  insert its shell-quoted path, double-click a file to open it in its default app, and
+  right-click for the basics — reveal in Finder, new file/folder, rename, duplicate,
+  copy path or name, open a folder in a fresh terminal, or move to Trash
 - **Links & clipboard** — plain-text URLs and OSC 8 hyperlinks are clickable (opening in
   your default browser), OSC 52 lets `tmux`/`nvim`/`ssh` copy to your clipboard
 - **Copy on select & instant translate** — selecting text copies it automatically;

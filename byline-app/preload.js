@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('byline', {
   listDir: (dir)           => ipcRenderer.invoke('fs:list', { dir }),
   // file-tree double-click: open with the system default app
   openPath: (p)            => ipcRenderer.invoke('shell:open-path', { path: p }),
+  // file-tree right-click operations (reveal / trash / rename / create / duplicate)
+  revealPath: (p)          => ipcRenderer.invoke('fs:reveal', { path: p }),
+  trashPath: (p)           => ipcRenderer.invoke('fs:trash', { path: p }),
+  renamePath: (p, name)    => ipcRenderer.invoke('fs:rename', { path: p, name }),
+  createEntry: (parent, name, dir) => ipcRenderer.invoke('fs:create', { parent, name, dir }),
+  duplicatePath: (p)       => ipcRenderer.invoke('fs:duplicate', { path: p }),
   // terminal right-click 翻译: Google Translate via main (net.fetch -> system proxy)
   translate: (req)         => ipcRenderer.invoke('translate:run', req),
   translateCancel: (id)    => ipcRenderer.send('translate:cancel', { id }),
